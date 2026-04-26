@@ -1,0 +1,52 @@
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --surface-base: #fbfaf7;
+    --surface-card: #ffffff;
+    --surface-muted: #f6f7f9;
+    --text-primary: #15181e;
+    --text-secondary: #5a616d;
+    --text-muted: #828996;
+    --border-default: #eceef1;
+    --border-strong: #d4d7dd;
+  }
+
+  body {
+    @apply min-h-screen bg-surface-base text-text-primary font-sans antialiased;
+  }
+
+  h1, h2, h3 {
+    @apply font-display text-ink-900;
+  }
+}
+
+@layer components {
+  .maecas-card {
+    @apply rounded-xl border border-border bg-surface-card p-6 shadow-soft;
+  }
+
+  .maecas-card-head {
+    @apply mb-4 flex items-start justify-between gap-3;
+  }
+
+  .maecas-eyebrow {
+    @apply text-[10px] uppercase tracking-[0.14em] text-text-muted font-semibold;
+  }
+
+  .maecas-title {
+    @apply text-lg font-semibold text-text-primary;
+  }
+
+  .maecas-subtitle {
+    @apply text-sm text-text-secondary;
+  }
+}
+
+body {
+  font-feature-settings: 'tnum' 1;
+}
