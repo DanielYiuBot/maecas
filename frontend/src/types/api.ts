@@ -175,7 +175,6 @@ export interface LSEGMarketData {
   price_history: PricePoint[]
   fundamentals: Record<string, unknown>
   consensus: ConsensusEstimates | null
-  news_headlines: Record<string, unknown>[]
   macro: Record<string, unknown>
   lseg_available: boolean
   estimates_surprise_fy0?: EstimatesSurpriseFY0 | null

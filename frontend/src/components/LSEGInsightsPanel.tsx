@@ -19,7 +19,6 @@ const BLOCK_LABELS: Record<string, string> = {
   price: 'Price window',
   fundamentals: 'Fundamentals',
   consensus: 'Consensus (event-aligned)',
-  news: 'News headlines',
   estimates_surprise_fy0: 'Estimates vs actual (FY0)',
   instrument_display: 'Instrument metadata',
   estimate_revisions: 'Estimate revisions',
@@ -257,24 +256,6 @@ function EstimateRevisionsBlock({ rev }: { rev: EstimateRevisions }) {
   )
 }
 
-function pickHeadline(rec: Record<string, unknown>): string {
-  const keys = ['headline', 'Headline', 'HEADLINE', 'story', 'Story', 'text', 'Text', 'version', 'Version']
-  for (const k of keys) {
-    const v = rec[k]
-    if (typeof v === 'string' && v.trim()) return v.trim()
-  }
-  return ''
-}
-
-function pickNewsTime(rec: Record<string, unknown>): string {
-  const keys = ['date', 'Date', 'versionCreated', 'VersionCreated', 'time', 'Time', 'newsDateTime', 'NewsDateTime']
-  for (const k of keys) {
-    const v = rec[k]
-    if (typeof v === 'string' && v.trim()) return v.trim().split('T')[0] ?? v.trim()
-  }
-  return ''
-}
-
 function formatLsegFieldName(rawKey: string): string {
   let s = rawKey
   const paren = s.indexOf('(')
@@ -300,7 +281,7 @@ function RevenueSparkline({ fundamentals }: { fundamentals: Record<string, unkno
   const total = numericPts.length
   const data = numericPts.map((p, i) => {
     const lag = total - 1 - i
-    const label = lag === 0 ? 'Latest' : `T-${lag}`
+    const label = lag === 0 ? 'Latest (T-0)' : `T-${lag}`
     return { label, value: p.v }
   })
 
@@ -314,6 +295,9 @@ function RevenueSparkline({ fundamentals }: { fundamentals: Record<string, unkno
           {formatLsegFieldName(revenueKey)} — last {total} reported periods
         </span>
       </div>
+      <p className="mb-2 text-[11px] text-text-muted">
+        T-minus labels are relative periods: for example, T-4 means 4 reported periods before the latest available period.
+      </p>
       <div className="h-32">
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={data} margin={{ top: 4, right: 4, left: 8, bottom: 4 }}>
@@ -442,7 +426,7 @@ export function LSEGInsightsPanel({ lseg_data, market, metadata }: Props) {
           <p className="maecas-eyebrow">Market Data</p>
           <h3 className="maecas-title">LSEG market data &amp; context</h3>
           <p className="mt-1 text-sm text-text-secondary">
-            Consensus, fundamentals, and news from LSEG plus transcript-vs-market synthesis.
+            Consensus and fundamentals from LSEG plus transcript-vs-market synthesis.
           </p>
         </div>
         <div className="flex shrink-0 flex-wrap items-center gap-2">
@@ -522,39 +506,13 @@ export function LSEGInsightsPanel({ lseg_data, market, metadata }: Props) {
             </div>
           )}
 
-          {lseg?.news_headlines && lseg.news_headlines.length > 0 && (
-            <div>
-              <h4 className="mb-2 text-sm font-medium text-text-secondary">
-                Headlines around earnings (LSEG news)
-              </h4>
-              <ul className="max-h-64 space-y-2 overflow-y-auto pr-1">
-                {lseg.news_headlines.slice(0, 12).map((rec, i) => {
-                  const line = pickHeadline(rec as Record<string, unknown>)
-                  const t = pickNewsTime(rec as Record<string, unknown>)
-                  return (
-                    <li key={i} className="border-b border-border pb-2 text-sm last:border-0">
-                      {t && <span className="mr-2 font-mono text-xs text-text-muted">{t}</span>}
-                      <span className="text-text-primary">{line || '(no headline text)'}</span>
-                    </li>
-                  )
-                })}
-              </ul>
-            </div>
-          )}
-
-          {market.beat_miss_flags.length > 0 && !hasEventEstimateCards && (
+          {market.beat_miss_flags.length > 0 && (
             <div>
               <h4 className="mb-2 text-sm font-medium text-text-secondary">
                 Stated results vs market
               </h4>
               <BeatMissTable flags={market.beat_miss_flags} />
             </div>
-          )}
-
-          {market.beat_miss_flags.length > 0 && hasEventEstimateCards && (
-            <p className="rounded-lg border border-border bg-surface-muted/60 p-3 text-xs text-text-muted">
-              Stated-results beat/miss rows hidden here because the Actual vs estimates cards above already show the event-aligned EPS/revenue comparison.
-            </p>
           )}
 
           {market.computed_metrics.length > 0 && (

@@ -80,7 +80,6 @@ class LSEGMarketData(BaseModel):
     price_history: list[PricePoint]
     fundamentals: dict
     consensus: Optional[ConsensusEstimates]
-    news_headlines: list[dict]
     macro: dict
     lseg_available: bool
     estimates_surprise_fy0: Optional[EstimatesSurpriseFY0] = None

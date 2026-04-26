@@ -1,7 +1,6 @@
 import { AlertTriangle, Info, Lightbulb, ShieldAlert } from 'lucide-react'
 import type { HiddenGem, NarrativeClaim, NarrativeSection } from '../types/api'
 import { CitationButton } from './CitationButton'
-import { useDedup } from '../lib/dedup'
 import { MethodologyTip } from './MethodologyTip'
 import {
   SEVERITY_STYLE,
@@ -23,18 +22,7 @@ function sectionTitle(section: string): string {
   return section.replace(/_/g, ' ')
 }
 
-function ClaimBlock({ claim, coveredBy }: { claim: NarrativeClaim; coveredBy: string | null }) {
-  if (coveredBy) {
-    // Already shown by an earlier card — collapse to a one-liner with a "covered above" tag.
-    // Preserves auditability (the claim still renders with its citation) without restating
-    // the full text the trader complained about repeating.
-    return (
-      <div className="rounded border border-border bg-surface-muted/40 p-2 text-[11px] text-text-muted">
-        <span className="mr-2 italic">Covered above</span>
-        <span className="line-clamp-1">{claim.text}</span>
-      </div>
-    )
-  }
+function ClaimBlock({ claim }: { claim: NarrativeClaim }) {
   return (
     <div className="rounded border border-border bg-surface-card p-2">
       <p className="text-xs text-text-primary">{claim.text}</p>
@@ -56,7 +44,6 @@ function ClaimBlock({ claim, coveredBy }: { claim: NarrativeClaim; coveredBy: st
 }
 
 function SectionBlock({ section }: { section: NarrativeSection }) {
-  const dedup = useDedup()
   return (
     <div className="rounded-lg border border-border bg-surface-muted/60 p-4">
       <h4 className="mb-1.5 text-sm font-semibold text-text-primary">
@@ -67,13 +54,9 @@ function SectionBlock({ section }: { section: NarrativeSection }) {
       </p>
       {section.claims.length > 0 && (
         <div className="mt-3 space-y-2">
-          {section.claims.map((claim, idx) => {
-            const coveredBy = dedup.shownBy(claim.text)
-            // Register this claim if it's new, so any later narrative section that
-            // restates it gets dimmed too.
-            if (!coveredBy) dedup.register(claim.text, `WhatChangedPanel.${section.section}`)
-            return <ClaimBlock key={idx} claim={claim} coveredBy={coveredBy} />
-          })}
+          {section.claims.map((claim, idx) => (
+            <ClaimBlock key={idx} claim={claim} />
+          ))}
         </div>
       )}
     </div>

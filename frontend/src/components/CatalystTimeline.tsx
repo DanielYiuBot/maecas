@@ -5,7 +5,6 @@ import { CitationButton } from './CitationButton'
 import { MethodologyTip } from './MethodologyTip'
 import { ConfidenceBadge, bucketConfidence, shouldSurfaceConfidence } from '../lib/confidence'
 import { OrdinalChip, surpriseGapToOrdinal } from '../lib/ordinal'
-import { useDedup } from '../lib/dedup'
 
 interface Props {
   guidance: GuidanceCatalysts
@@ -107,22 +106,7 @@ function CatalystRow({ catalyst }: { catalyst: Catalyst }) {
 }
 
 export function CatalystTimeline({ guidance }: Props) {
-  const dedup = useDedup()
-
-  // Suppress catalysts whose description has already been surfaced by the Core
-  // Thesis or the primary Trading Signals tier. These are the same fact paraphrased.
-  const visibleCatalysts: typeof guidance.catalysts = []
-  let suppressedCount = 0
-  for (const c of guidance.catalysts) {
-    if (dedup.isShown(c.description)) {
-      suppressedCount += 1
-      continue
-    }
-    visibleCatalysts.push(c)
-    dedup.register(c.description, 'CatalystTimeline')
-  }
-
-  const catalysts = visibleCatalysts
+  const catalysts = guidance.catalysts
 
   return (
     <div className="maecas-card">
@@ -136,7 +120,7 @@ export function CatalystTimeline({ guidance }: Props) {
         </div>
       </div>
 
-      {catalysts.length > 0 && (
+      {catalysts.length > 0 ? (
         <div className="relative">
           <div className="absolute bottom-0 left-4 top-0 w-px bg-border" />
           <div className="space-y-5">
@@ -145,11 +129,9 @@ export function CatalystTimeline({ guidance }: Props) {
             ))}
           </div>
         </div>
-      )}
-
-      {suppressedCount > 0 && (
-        <p className="mt-3 text-[11px] italic text-text-muted">
-          {suppressedCount} catalyst{suppressedCount === 1 ? '' : 's'} hidden — already covered above.
+      ) : (
+        <p className="rounded border border-border bg-surface-muted/60 px-3 py-2 text-sm text-text-muted">
+          No explicit catalysts were extracted for this run.
         </p>
       )}
 

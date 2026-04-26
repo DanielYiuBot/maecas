@@ -122,7 +122,7 @@ export function SentimentPanel({ sentiment }: Props) {
         </span>
       </div>
 
-      <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4">
         <div className="space-y-3">
           <h4 className="text-sm font-medium text-text-secondary">Presentation</h4>
           <OrdinalRow
@@ -162,7 +162,7 @@ export function SentimentPanel({ sentiment }: Props) {
       {concerns.length > 0 && (
         <div className="mt-5 rounded-lg border border-accent-100 bg-accent-50/60 p-3">
           <p className="maecas-eyebrow mb-2 text-accent-700">Top analyst concerns</p>
-          <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
+          <div className="grid grid-cols-1 gap-2 lg:grid-cols-3">
             {concerns.map((c) => (
               <div key={c.topic} className="rounded border border-border bg-surface-card p-2">
                 <p className="text-sm font-medium capitalize text-text-primary">{c.topic}</p>

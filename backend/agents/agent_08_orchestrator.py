@@ -599,6 +599,73 @@ async def run(state: GraphState) -> dict:
         logger.error("agent_08_orchestrator FAILED | job_id=%s | duration=%.2fs | error=%s", job_id, elapsed, e, exc_info=True)
         err = f"Orchestrator error: {e}"
         warnings.append(err)
+        warnings = _dedupe_warnings_preserve_order(warnings)
+
+        # Degrade gracefully when LLM synthesis emits malformed JSON.
+        # We still have upstream agent outputs, so return a usable report
+        # instead of failing the whole pipeline in the final step.
+        if transcript and sentiment and financials and guidance and market_context and signals:
+            fallback_scores = {
+                key: CompositeScore(
+                    score=5,
+                    key_drivers=["Fallback midpoint due to orchestrator parse failure."],
+                    methodology=ScoreMethodology(
+                        metric=key,
+                        scale="1-10",
+                        inputs=["upstream agent outputs"],
+                        heuristic="Default midpoint assigned when orchestrator output was invalid JSON.",
+                    ),
+                )
+                for key in ["sentiment", "financials", "guidance", "risk", "momentum"]
+            }
+            fallback_narrative = [
+                NarrativeSection(
+                    section="what_changed",
+                    summary="Final synthesis JSON was invalid for this run; use upstream panels for details.",
+                    claims=[],
+                ),
+                NarrativeSection(
+                    section="management_downplayed",
+                    summary="Downplayed-items synthesis unavailable due to malformed orchestrator payload.",
+                    claims=[],
+                ),
+            ]
+            model_warnings, risk_flags = _classify_warnings(
+                warnings,
+                {"model_warnings": warnings, "risk_flags": []},
+            )
+            report = AnalysisReport(
+                job_id=job_id,
+                created_at=datetime.now(timezone.utc).isoformat(),
+                metadata=transcript.metadata,
+                sentiment=sentiment,
+                financials=financials,
+                market=market_context,
+                lseg_data=lseg_data,
+                guidance=guidance,
+                delta=delta,
+                signals=signals,
+                composite_scores=fallback_scores,
+                narrative=fallback_narrative,
+                expectation_reality=expectation,
+                valuation_linkage=None,
+                hidden_gems=[],
+                thesis_memory=_memory_with_current_thesis(thesis_memory, signals),
+                pipeline_warnings=warnings,
+                model_warnings=model_warnings,
+                risk_flags=risk_flags,
+                transcript_utterances=list(transcript.utterances),
+            )
+            if progress:
+                await progress(
+                    stage="agents",
+                    agent="orchestrator",
+                    status="complete",
+                    progress_pct=95,
+                    message="Report assembled with fallback synthesis.",
+                )
+            return {"report": report, "pipeline_warnings": [err]}
+
         if progress:
             await progress(stage="error", agent="orchestrator", status="error", progress_pct=100, message=str(e))
         return {"pipeline_warnings": [err]}

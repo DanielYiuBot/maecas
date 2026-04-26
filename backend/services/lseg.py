@@ -651,35 +651,6 @@ class MarketDataService:
             logger.debug("get_instrument_display failed for %s: %s", ric, e)
             return None
 
-    def get_news(self, ric: str, start: str, end: str) -> list[dict]:
-        """Headlines around the event via Access-layer news API (LSEG codebook pattern).
-
-        ``get_data`` with ``TR.HeadlineText`` / ``TR.NewsDateTime`` often fails; the
-        reference notebooks use ``news.get_headlines`` with a query string instead.
-        """
-        if not self.is_available():
-            return []
-        news_mod = getattr(ld, "news", None)
-        if news_mod is None or not hasattr(news_mod, "get_headlines"):
-            logger.warning("get_news: lseg.data.news.get_headlines not available")
-            return []
-        try:
-            query = f"R:{ric} AND Language:LEN AND Source:RTRS"
-            df = news_mod.get_headlines(query, start=str(start), end=str(end), count=100)
-            if df is None or getattr(df, "empty", True):
-                df = news_mod.get_headlines(
-                    f"R:{ric} AND Language:LEN", start=str(start), end=str(end), count=100
-                )
-            if df is None or getattr(df, "empty", True):
-                return []
-            if hasattr(df, "reset_index"):
-                df = df.reset_index()
-            records = df.to_dict(orient="records")
-            return _sanitize_for_json(records)
-        except Exception as e:
-            logger.warning("get_news (get_headlines) failed for %s: %s", ric, e)
-            return []
-
     MACRO_RIC_MAP = {
         "FX": ["EUR=", "GBP=", "JPY="],
         "consumer_sentiment": ["USCONC=ECI"],
@@ -720,7 +691,6 @@ class MarketDataService:
                 price_history=[],
                 fundamentals={},
                 consensus=None,
-                news_headlines=[],
                 macro={},
                 lseg_available=False,
                 estimates_surprise_fy0=None,
@@ -805,11 +775,6 @@ class MarketDataService:
             except Exception:
                 consensus = None
 
-        news = self.get_news(
-            resolved,
-            _offset_date(earnings_date, -7),
-            _offset_date(earnings_date, 7),
-        )
         macro = self.get_macro(macro_flags)
 
         def _surprise_ok(s: Optional[EstimatesSurpriseFY0]) -> bool:
@@ -861,7 +826,6 @@ class MarketDataService:
             "price": len(price_history) > 0,
             "fundamentals": bool(fundamentals),
             "consensus": consensus is not None,
-            "news": len(news) > 0,
             "macro": any(v is not None for v in macro.values()) if macro else False,
             "estimates_surprise_fy0": _surprise_ok(estimates_surprise_fy0),
             "instrument_display": instrument_display is not None
@@ -877,7 +841,6 @@ class MarketDataService:
             price_history=price_history,
             fundamentals=fundamentals,
             consensus=consensus,
-            news_headlines=news,
             macro=macro,
             lseg_available=True,
             estimates_surprise_fy0=estimates_surprise_fy0,

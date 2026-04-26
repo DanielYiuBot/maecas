@@ -1,6 +1,6 @@
 """Agent 9 — Expectation vs Reality.
 
-Takes the transcript plus pre-earnings news and consensus estimates, and
+Takes the transcript plus consensus estimates, and
 produces a structured ExpectationReality payload consumed by:
   * Agent 7 (Alpha) to ground priced_in_assessment on each signal.
   * Agent 8 (Orchestrator) when deciding what to surface in what_changed.
@@ -24,12 +24,6 @@ class ExpectationAgent(BaseAgent):
 
 
 _agent = ExpectationAgent()
-
-
-def _slice_pre_call_news(news: list[dict] | None, limit: int = 15) -> list[dict]:
-    if not news:
-        return []
-    return news[:limit]
 
 
 async def run(state: GraphState) -> dict:
@@ -66,7 +60,7 @@ async def run(state: GraphState) -> dict:
 
     try:
         utterances = [u.model_dump() for u in transcript.utterances]
-        pre_call_news = _slice_pre_call_news(lseg_data.news_headlines)
+        pre_call_news: list[dict] = []
         consensus_payload = lseg_data.consensus.model_dump() if lseg_data.consensus else None
 
         system, user, provider, model = _agent.load_prompt(

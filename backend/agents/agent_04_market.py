@@ -111,7 +111,6 @@ async def fetch_lseg(state: GraphState) -> dict:
             price_history=[],
             fundamentals={},
             consensus=None,
-            news_headlines=[],
             macro={},
             lseg_available=False,
             estimates_surprise_fy0=None,

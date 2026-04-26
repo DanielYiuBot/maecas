@@ -1,6 +1,18 @@
 import { MinusCircle, PlusCircle } from 'lucide-react'
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  ReferenceLine,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts'
 import type { QoQDelta } from '../types/api'
 import { OrdinalChip, deltaToOrdinal } from '../lib/ordinal'
+import { chartTheme } from '../lib/chartTheme'
 import { MethodologyTip } from './MethodologyTip'
 
 interface Props {
@@ -34,7 +46,28 @@ function DriftBadge({
 export function DeltaView({ delta }: Props) {
   if (!delta) return null
 
-  const topicShifts = delta.topic_deltas
+  const isNewTopic = (status: string): boolean => status.toLowerCase() === 'new'
+  const isRepeatedTopic = (status: string): boolean => status.toLowerCase() === 'repeated'
+  const isNoLongerMentionedTopic = (status: string): boolean => {
+    const normalized = status.toLowerCase()
+    return normalized === 'de_emphasized' || normalized === 'resolved'
+  }
+
+  const newTopics = delta.topic_deltas.filter((row) => isNewTopic(row.novelty_status))
+  const repeatedTopics = delta.topic_deltas.filter((row) => isRepeatedTopic(row.novelty_status))
+  const noLongerMentionedTopics = delta.topic_deltas.filter((row) =>
+    isNoLongerMentionedTopic(row.novelty_status)
+  )
+
+  const chartRows = repeatedTopics
+    .map((row) => ({
+      topic: row.topic,
+      shortTopic: row.topic.length > 42 ? `${row.topic.slice(0, 39)}...` : row.topic,
+      sentimentDelta: Number(row.sentiment_delta.toFixed(2)),
+    }))
+    .sort((a, b) => a.sentimentDelta - b.sentimentDelta)
+
+  const topicShifts = repeatedTopics
     .map((row) => ({ topic: row.topic, ordinal: deltaToOrdinal(row.sentiment_delta) }))
     .sort((a, b) => {
       const order = { up: 0, down: 1, flat: 2, none: 3 } as const
@@ -53,23 +86,95 @@ export function DeltaView({ delta }: Props) {
       </div>
 
       <div className="mb-6">
-        <h4 className="mb-2 text-sm font-medium text-text-secondary">Signal Novelty</h4>
-        <div className="flex flex-wrap gap-2">
-          {delta.signal_novelty.map((s, i) => (
-            <span key={i} className="rounded bg-surface-muted px-2 py-1 text-xs text-text-secondary">
-              {s.signal_id}: {s.novelty_status}
-            </span>
-          ))}
-          {delta.signal_novelty.length === 0 && (
-            <span className="text-xs text-text-muted">No signals tagged with novelty status.</span>
-          )}
+        <h4 className="mb-2 text-sm font-medium text-text-secondary">Topic Mention Changes</h4>
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+          <div className="rounded border border-border bg-surface-card p-3">
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-bull-700">Newly mentioned</p>
+            <div className="flex flex-wrap gap-1.5">
+              {newTopics.length > 0 ? (
+                newTopics.map((row) => (
+                  <span key={row.topic} className="rounded bg-bull-50 px-2 py-0.5 text-xs text-bull-900">
+                    {row.topic}
+                  </span>
+                ))
+              ) : (
+                <span className="text-xs text-text-muted">None detected.</span>
+              )}
+            </div>
+          </div>
+          <div className="rounded border border-border bg-surface-card p-3">
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-warn-900">Mentioned in both</p>
+            <div className="flex flex-wrap gap-1.5">
+              {repeatedTopics.length > 0 ? (
+                repeatedTopics.map((row) => (
+                  <span key={row.topic} className="rounded bg-warn-50 px-2 py-0.5 text-xs text-warn-900">
+                    {row.topic}
+                  </span>
+                ))
+              ) : (
+                <span className="text-xs text-text-muted">None detected.</span>
+              )}
+            </div>
+          </div>
+          <div className="rounded border border-border bg-surface-card p-3">
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-bear-700">No longer mentioned</p>
+            <div className="flex flex-wrap gap-1.5">
+              {noLongerMentionedTopics.length > 0 ? (
+                noLongerMentionedTopics.map((row) => (
+                  <span key={row.topic} className="rounded bg-bear-50 px-2 py-0.5 text-xs text-bear-900">
+                    {row.topic}
+                  </span>
+                ))
+              ) : (
+                <span className="text-xs text-text-muted">None detected.</span>
+              )}
+            </div>
+          </div>
         </div>
       </div>
 
       {topicShifts.length > 0 && (
         <div className="mb-5">
-          <h4 className="mb-2 text-sm font-medium text-text-secondary">Tone shifts by topic vs prior quarter</h4>
-          <div className="space-y-1.5">
+          <h4 className="mb-2 text-sm font-medium text-text-secondary">
+            Tone shifts for topics mentioned again
+          </h4>
+          <div className="mb-4 h-64 rounded border border-border bg-surface-card p-2">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={chartRows} layout="vertical" margin={{ top: 8, right: 12, bottom: 8, left: 16 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.grid} />
+                <XAxis
+                  type="number"
+                  domain={[-0.4, 0.4]}
+                  tick={{ fontSize: 10, fill: chartTheme.axis }}
+                  tickFormatter={(v: number) => (v === 0 ? '0' : v.toFixed(1))}
+                />
+                <YAxis
+                  type="category"
+                  dataKey="shortTopic"
+                  width={220}
+                  tick={{ fontSize: 10, fill: chartTheme.axis }}
+                />
+                <ReferenceLine x={0} stroke={chartTheme.axis} />
+                <Tooltip
+                  contentStyle={{ background: chartTheme.tooltipBg, borderColor: chartTheme.tooltipBorder }}
+                  formatter={(v: number) => [`${v > 0 ? '+' : ''}${v.toFixed(2)}`, 'Sentiment delta']}
+                  labelFormatter={(_, payload) =>
+                    payload && payload[0] && payload[0].payload ? payload[0].payload.topic : ''
+                  }
+                />
+                <Bar
+                  dataKey="sentimentDelta"
+                  radius={[2, 2, 2, 2]}
+                  fill={chartTheme.accent}
+                >
+                  {chartRows.map((entry) => (
+                    <Cell key={entry.topic} fill={entry.sentimentDelta >= 0 ? '#2F7A50' : '#933036'} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+          <div className="grid grid-cols-1 gap-1.5 md:grid-cols-2">
             {topicShifts.map((row) => (
               <div
                 key={row.topic}
@@ -83,6 +188,12 @@ export function DeltaView({ delta }: Props) {
           <p className="mt-1 text-[11px] text-text-muted">
             Direction buckets only. Double arrows mark larger moves; centred bucket suppresses moves within model noise floor.
           </p>
+        </div>
+      )}
+
+      {topicShifts.length === 0 && (
+        <div className="mb-5 rounded border border-border bg-surface-card px-3 py-2 text-xs text-text-muted">
+          No repeated topics were found, so there are no quarter-over-quarter tone shifts to compare.
         </div>
       )}
 

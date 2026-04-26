@@ -1,19 +1,15 @@
 import { useState, useEffect } from 'react'
 import { Upload } from './components/Upload'
 import { Progress } from './components/Progress'
-import { QuickRead } from './components/QuickRead'
 import { CoreThesisHeader } from './components/CoreThesisHeader'
 import { ExpectationRealityPanel } from './components/ExpectationRealityPanel'
 import { RatingCard } from './components/RatingCard'
 import { SignalFeed } from './components/SignalFeed'
-import { PriceChart } from './components/PriceChart'
 import { LSEGInsightsPanel } from './components/LSEGInsightsPanel'
 import { FinancialsChart } from './components/FinancialsChart'
 import { SentimentPanel } from './components/SentimentPanel'
 import { CatalystTimeline } from './components/CatalystTimeline'
 import { DeltaView } from './components/DeltaView'
-import { ThesisTracker } from './components/ThesisTracker'
-import { TrackRecordPanel } from './components/TrackRecordPanel'
 import { WhatChangedPanel } from './components/WhatChangedPanel'
 import { TranscriptDrawer } from './components/TranscriptDrawer'
 import { TranscriptProvider } from './context/TranscriptContext'
@@ -123,31 +119,17 @@ export default function App() {
           <TranscriptProvider utterances={report.transcript_utterances ?? []}>
             <DedupRegistryProvider>
             <div className="mx-auto w-full max-w-[1120px] space-y-6">
-              <QuickRead report={report} />
-
               <CoreThesisHeader signals={report.signals} />
-
-              <TrackRecordPanel
-                memory={report.thesis_memory}
-                currentThesis={report.signals.core_thesis}
-              />
 
               <ExpectationRealityPanel expectation={report.expectation_reality} />
 
               <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
                 <RatingCard report={report} />
-                <SignalFeed signals={report.signals} />
               </div>
 
-              <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-                <PriceChart
-                  priceHistory={report.lseg_data?.price_history ?? []}
-                  earningsDate={report.metadata.event_date}
-                  prePct={report.market.price_pre_earnings_30d}
-                  postPct={report.market.price_post_earnings_10d}
-                />
-                <FinancialsChart financials={report.financials} />
-              </div>
+              <SignalFeed signals={report.signals} />
+
+              <FinancialsChart financials={report.financials} />
 
               <LSEGInsightsPanel
                 lseg_data={report.lseg_data}
@@ -155,17 +137,11 @@ export default function App() {
                 metadata={report.metadata}
               />
 
-              <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-                <SentimentPanel sentiment={report.sentiment} />
-                <CatalystTimeline guidance={report.guidance} />
-              </div>
+              <SentimentPanel sentiment={report.sentiment} />
+
+              <CatalystTimeline guidance={report.guidance} />
 
               <DeltaView delta={report.delta} />
-
-              <ThesisTracker
-                memory={report.thesis_memory}
-                currentThesis={report.signals.core_thesis}
-              />
 
               <WhatChangedPanel
                 narrative={report.narrative}
