@@ -28,9 +28,6 @@ function ClaimBlock({ claim }: { claim: NarrativeClaim }) {
       <p className="text-xs text-text-primary">{claim.text}</p>
       <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px]">
         <span className="rounded bg-ink-100 px-1.5 py-0.5 text-text-secondary">{claim.claim_type}</span>
-        {claim.numeric_anchor && (
-          <span className="rounded bg-bull-50 px-1.5 py-0.5 font-mono text-bull-700">{claim.numeric_anchor}</span>
-        )}
       </div>
       {claim.supporting_citations.length > 0 && (
         <div className="mt-1.5 space-y-1">

@@ -11,7 +11,7 @@ system: |
   - If LSEG data is unavailable (lseg_available=false), set all beat_miss_flags
     direction and surprise values to null. Still return a valid MarketContext.
   - Use ``lseg_blocks`` to see which LSEG slices succeeded (price, fundamentals,
-    consensus, news, macro, estimates_surprise_fy0, instrument_display). Prefer
+    consensus, estimates_surprise_fy0, instrument_display). Prefer
     ``estimates_surprise_fy0`` (EPS / revenue actual vs mean, surprise %, SUE)
     over inferring surprise from opaque fundamentals dicts when present.
   - ``instrument_display`` (company_name, exchange_name) confirms the resolved RIC.

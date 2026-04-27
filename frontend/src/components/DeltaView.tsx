@@ -117,7 +117,9 @@ export function DeltaView({ delta }: Props) {
             </div>
           </div>
           <div className="rounded border border-border bg-surface-card p-3">
-            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-bear-700">No longer mentioned</p>
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-bear-700">
+              No longer mentioned topics
+            </p>
             <div className="flex flex-wrap gap-1.5">
               {noLongerMentionedTopics.length > 0 ? (
                 noLongerMentionedTopics.map((row) => (
@@ -126,7 +128,9 @@ export function DeltaView({ delta }: Props) {
                   </span>
                 ))
               ) : (
-                <span className="text-xs text-text-muted">None detected.</span>
+                <span className="text-xs text-text-muted">
+                  None detected at topic level; phrase-level removals appear below when available.
+                </span>
               )}
             </div>
           </div>

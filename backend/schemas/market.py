@@ -61,31 +61,15 @@ class ComputedMetric(BaseModel):
     inputs: dict[str, Optional[float]]
 
 
-class EstimateRevisionSnapshot(BaseModel):
-    eps_mean: Optional[float] = None
-    revenue_mean: Optional[float] = None
-
-
-class EstimateRevisions(BaseModel):
-    """FY1 mean estimates at several look-back windows for revision-trend detection."""
-
-    latest: Optional[EstimateRevisionSnapshot] = None
-    window_30d_ago: Optional[EstimateRevisionSnapshot] = None
-    window_60d_ago: Optional[EstimateRevisionSnapshot] = None
-    window_90d_ago: Optional[EstimateRevisionSnapshot] = None
-
-
 class LSEGMarketData(BaseModel):
     resolved_ric: Optional[str]
     price_history: list[PricePoint]
     fundamentals: dict
     consensus: Optional[ConsensusEstimates]
-    macro: dict
     lseg_available: bool
     estimates_surprise_fy0: Optional[EstimatesSurpriseFY0] = None
     instrument_display: Optional[InstrumentDisplay] = None
     lseg_blocks: Optional[dict[str, bool]] = None
-    estimate_revisions: Optional[EstimateRevisions] = None
 
 
 class MarketContext(BaseModel):

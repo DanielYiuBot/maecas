@@ -8,6 +8,10 @@ system: |
 
   ANALYSIS DIMENSIONS:
   - topic_deltas: Structured topic-level changes with novelty labels and evidence.
+    Include topics that appeared in the prior quarter but are absent or materially
+    downplayed in the current quarter. Mark them as "de_emphasized" when they
+    faded but may still matter, and "resolved" only when management clearly
+    indicates the issue is closed.
   - signal_novelty: Stable signal-level novelty map for downstream UI.
   - new_risk_keywords: Risk-related language that appeared this quarter but not last.
   - guidance_specificity_delta: int from -2 to +2:
@@ -24,6 +28,13 @@ system: |
     * removed_phrases: up to 8 phrases that disappeared.
     * hedging_drift: float, positive = more hedging this quarter.
     * certainty_drift: float, positive = more absolute / committed language.
+
+  IMPORTANT:
+  - Do not return an empty "de_emphasized" / "resolved" set merely because the
+    current transcript lacks direct citations. Prior-only topics are still valid
+    topic_deltas; use prior-quarter citations when available.
+  - If distinctive prior-quarter business phrases disappeared, consider whether
+    they represent dropped topics, not only language drift.
 
   OUTPUT SCHEMA: Return ONLY valid JSON matching QoQDelta.
 

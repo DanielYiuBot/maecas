@@ -14,8 +14,6 @@ from backend.schemas.market import (
     PricePoint,
     ConsensusEstimates,
     EstimatesSurpriseFY0,
-    EstimateRevisions,
-    EstimateRevisionSnapshot,
     MetricSurpriseSnapshot,
     InstrumentDisplay,
 )
@@ -118,6 +116,18 @@ def _coerce_int(val: Any) -> Optional[int]:
         return None
 
 
+def _is_missing_identifier(value: Any) -> bool:
+    if value is None:
+        return True
+    text = str(value).strip()
+    return text == "" or text.lower() in {"<na>", "nan", "none", "null"}
+
+
+def _looks_like_ric(value: str) -> bool:
+    text = value.strip()
+    return bool(text) and "." in text and not _is_missing_identifier(text)
+
+
 def _is_row_index_dict(cell: dict) -> bool:
     """True if LSEG encoded rows as string keys "0", "1", ... (DataFrame index in to_dict)."""
     if not cell:
@@ -208,7 +218,14 @@ class MarketDataService:
                 kwargs["filter"] = "AssetClass eq 'equity'"
             results = ld.discovery.search(**kwargs)
             if results is not None and len(results) > 0:
-                return str(results.iloc[0]["RIC"])
+                ric = str(results.iloc[0]["RIC"]).strip()
+                if not _is_missing_identifier(ric):
+                    return ric
+                logger.warning(
+                    "resolve_identifier: discovery.search(%r) returned unusable RIC %r",
+                    query,
+                    ric,
+                )
         except Exception as e:
             logger.warning("resolve_identifier: discovery.search(%r, equity_only=%s): %s", query, equity_only, e)
         return None
@@ -269,6 +286,12 @@ class MarketDataService:
                     if resolved:
                         logger.info("resolve_identifier: discovery resolved %s -> %s", q, resolved)
                         return resolved
+            if _looks_like_ric(ticker):
+                logger.warning(
+                    "resolve_identifier: falling back to RIC-like ticker after lookup failures: %s",
+                    ticker,
+                )
+                return ticker
 
         if name:
             for equity_only in (True, False):
@@ -581,57 +604,6 @@ class MarketDataService:
                 )
         return best
 
-    def get_estimate_revisions(self, ric: str, earnings_date: str) -> dict:
-        """Historical FY1 consensus means at T-30/T-60/T-90 vs today.
-
-        Best-effort: uses ``TR.EPSMeanEstimate`` / ``TR.RevenueMeanEstimate`` with an
-        ``Edate`` parameter and falls back to the inline form when the library rejects
-        the parameterised form. The caller should treat missing windows as "unavailable"
-        rather than zero.
-        """
-        if not self.is_available():
-            return {}
-
-        event_dt = _parse_event_dt(earnings_date)
-        windows = {
-            "latest": None,
-            "30d_ago": 30,
-            "60d_ago": 60,
-            "90d_ago": 90,
-        }
-
-        out: dict[str, dict[str, Optional[float]]] = {}
-        for label, days_ago in windows.items():
-            edate = None if days_ago is None else (event_dt - timedelta(days=days_ago)).strftime("%Y-%m-%d")
-            params_variants = [
-                {"Period": "FY1", "Frq": "FY"},
-                {"Period": "FY1", "Frq": "FY", "Edate": edate} if edate else None,
-            ]
-            snap: dict[str, Optional[float]] = {"eps_mean": None, "revenue_mean": None}
-            for params in params_variants:
-                if params is None:
-                    continue
-                try:
-                    df = ld.get_data(
-                        universe=ric,
-                        fields=["TR.EPSMeanEstimate", "TR.RevenueMeanEstimate"],
-                        parameters=params,
-                    )
-                    d = _sanitize_for_json(df.to_dict())
-                    eps_val = _coerce_float(_get_data_cell(d, ric, "TR.EPSMeanEstimate"))
-                    rev_val = _coerce_float(_get_data_cell(d, ric, "TR.RevenueMeanEstimate"))
-                    if eps_val is not None:
-                        snap["eps_mean"] = eps_val
-                    if rev_val is not None:
-                        snap["revenue_mean"] = rev_val
-                    if eps_val is not None or rev_val is not None:
-                        break
-                except Exception as e:
-                    logger.debug("get_estimate_revisions %s failed for %s: %s", label, ric, e)
-            out[label] = snap
-
-        return out
-
     def get_instrument_display(self, ric: str) -> Optional[InstrumentDisplay]:
         """Company / exchange labels for sanity-check after RIC resolution (tear-sheet style)."""
         if not self.is_available():
@@ -651,36 +623,12 @@ class MarketDataService:
             logger.debug("get_instrument_display failed for %s: %s", ric, e)
             return None
 
-    MACRO_RIC_MAP = {
-        "FX": ["EUR=", "GBP=", "JPY="],
-        "consumer_sentiment": ["USCONC=ECI"],
-        "inflation": ["USCPIY=ECI"],
-        "interest_rates": ["US10YT=RR"],
-        "tariffs": ["DXY="],
-        "box_office": [".SPXCT"],
-    }
-
-    def get_macro(self, macro_flags: list[str]) -> dict:
-        result: dict = {}
-        if not self.is_available():
-            return result
-        for flag in macro_flags:
-            rics = self.MACRO_RIC_MAP.get(flag, [])
-            for ric in rics:
-                try:
-                    df = ld.get_data(ric, ["BID", "ASK", "CF_LAST"])
-                    result[ric] = _sanitize_for_json(df.to_dict())
-                except Exception:
-                    result[ric] = None
-        return result
-
     def fetch_all(
         self,
         ric: Optional[str],
         ticker: Optional[str],
         company_name: Optional[str],
         earnings_date: str,
-        macro_flags: list[str],
     ) -> LSEGMarketData:
         """Orchestrate all LSEG calls and return a single LSEGMarketData."""
         resolved = self.resolve_identifier(ric=ric, ticker=ticker, name=company_name)
@@ -691,12 +639,10 @@ class MarketDataService:
                 price_history=[],
                 fundamentals={},
                 consensus=None,
-                macro={},
                 lseg_available=False,
                 estimates_surprise_fy0=None,
                 instrument_display=None,
                 lseg_blocks=None,
-                estimate_revisions=None,
             )
 
         price_raw = self.get_price_window(resolved, earnings_date)
@@ -775,8 +721,6 @@ class MarketDataService:
             except Exception:
                 consensus = None
 
-        macro = self.get_macro(macro_flags)
-
         def _surprise_ok(s: Optional[EstimatesSurpriseFY0]) -> bool:
             if s is None:
                 return False
@@ -797,43 +741,16 @@ class MarketDataService:
                     return True
             return False
 
-        revisions_raw = self.get_estimate_revisions(resolved, earnings_date)
-        estimate_revisions = None
-        if revisions_raw:
-            def _snap(d: Optional[dict]) -> Optional[EstimateRevisionSnapshot]:
-                if not d:
-                    return None
-                if d.get("eps_mean") is None and d.get("revenue_mean") is None:
-                    return None
-                return EstimateRevisionSnapshot(
-                    eps_mean=d.get("eps_mean"),
-                    revenue_mean=d.get("revenue_mean"),
-                )
-
-            estimate_revisions = EstimateRevisions(
-                latest=_snap(revisions_raw.get("latest")),
-                window_30d_ago=_snap(revisions_raw.get("30d_ago")),
-                window_60d_ago=_snap(revisions_raw.get("60d_ago")),
-                window_90d_ago=_snap(revisions_raw.get("90d_ago")),
-            )
-            if all(
-                getattr(estimate_revisions, f) is None
-                for f in ("latest", "window_30d_ago", "window_60d_ago", "window_90d_ago")
-            ):
-                estimate_revisions = None
-
         lseg_blocks = {
             "price": len(price_history) > 0,
             "fundamentals": bool(fundamentals),
             "consensus": consensus is not None,
-            "macro": any(v is not None for v in macro.values()) if macro else False,
             "estimates_surprise_fy0": _surprise_ok(estimates_surprise_fy0),
             "instrument_display": instrument_display is not None
             and (
                 (instrument_display.company_name is not None)
                 or (instrument_display.exchange_name is not None)
             ),
-            "estimate_revisions": estimate_revisions is not None,
         }
 
         return LSEGMarketData(
@@ -841,10 +758,8 @@ class MarketDataService:
             price_history=price_history,
             fundamentals=fundamentals,
             consensus=consensus,
-            macro=macro,
             lseg_available=True,
             estimates_surprise_fy0=estimates_surprise_fy0,
             instrument_display=instrument_display,
             lseg_blocks=lseg_blocks,
-            estimate_revisions=estimate_revisions,
         )

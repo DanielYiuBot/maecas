@@ -139,6 +139,24 @@ function buildRiskRow(report: AnalysisReport): TextRow {
   }
 }
 
+const LEGEND_ROWS = [
+  {
+    label: 'Tone',
+    scale: '1-3 Defensive · 4-6 Mixed · 7-10 Confident',
+    note: 'Higher means management sounded more confident.',
+  },
+  {
+    label: 'Hedging',
+    scale: '1-3 Direct · 4-6 Some hedging · 7-10 Heavy hedging',
+    note: 'Higher means more qualifier language.',
+  },
+  {
+    label: 'Density metrics',
+    scale: '<20% Light · 20-49% Notable · 50%+ Heavy',
+    note: 'For evasion/risk, higher is concerning. For guidance specificity, higher is better.',
+  },
+]
+
 export function RatingCard({ report }: Props) {
   const rows: TextRow[] = [
     buildToneRow(report),
@@ -157,6 +175,21 @@ export function RatingCard({ report }: Props) {
           <p className="maecas-subtitle mt-0.5">
             Five things this transcript actually reveals. Ordinal labels only; model scores stay off the decision surface.
           </p>
+        </div>
+      </div>
+
+      <div className="mb-4 rounded-lg border border-border bg-surface-muted/60 p-3">
+        <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-text-secondary">
+          How to read this scorecard
+        </p>
+        <div className="grid grid-cols-1 gap-2 text-xs md:grid-cols-3">
+          {LEGEND_ROWS.map((row) => (
+            <div key={row.label}>
+              <p className="font-medium text-text-primary">{row.label}</p>
+              <p className="font-mono text-[11px] text-text-secondary">{row.scale}</p>
+              <p className="mt-0.5 text-text-muted">{row.note}</p>
+            </div>
+          ))}
         </div>
       </div>
 

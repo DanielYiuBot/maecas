@@ -82,10 +82,6 @@ async def fetch_lseg(state: GraphState) -> dict:
         await progress(stage="lseg", agent="lseg_fetch", status="running", progress_pct=35, message="Fetching LSEG market data...")
 
     transcript = state.get("transcript")
-    sentiment = state.get("sentiment")
-
-    macro_flags = sentiment.macro_flags if sentiment else []
-
     ric = transcript.metadata.ric if transcript else None
     ticker = transcript.metadata.company_ticker if transcript else None
     company_name = transcript.metadata.company_name if transcript else None
@@ -97,7 +93,6 @@ async def fetch_lseg(state: GraphState) -> dict:
             ticker=ticker,
             company_name=company_name,
             earnings_date=earnings_date,
-            macro_flags=macro_flags,
         )
 
         if transcript and lseg_data.resolved_ric:
@@ -111,12 +106,10 @@ async def fetch_lseg(state: GraphState) -> dict:
             price_history=[],
             fundamentals={},
             consensus=None,
-            macro={},
             lseg_available=False,
             estimates_surprise_fy0=None,
             instrument_display=None,
             lseg_blocks=None,
-            estimate_revisions=None,
         )
 
     if progress:

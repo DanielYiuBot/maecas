@@ -64,7 +64,6 @@ export interface SentimentProfile {
   analyst_skepticism: number
   evasion_scores: EvasionScore[]
   register: string
-  macro_flags: string[]
   evidence_citations: EvidenceCitation[]
   confidence: number
   low_confidence_flag: boolean
@@ -140,18 +139,6 @@ export interface InstrumentDisplay {
   exchange_name: string | null
 }
 
-export interface EstimateRevisionSnapshot {
-  eps_mean: number | null
-  revenue_mean: number | null
-}
-
-export interface EstimateRevisions {
-  latest: EstimateRevisionSnapshot | null
-  window_30d_ago: EstimateRevisionSnapshot | null
-  window_60d_ago: EstimateRevisionSnapshot | null
-  window_90d_ago: EstimateRevisionSnapshot | null
-}
-
 export interface BeatMissFlag {
   metric: string
   stated_value: number | null
@@ -175,12 +162,10 @@ export interface LSEGMarketData {
   price_history: PricePoint[]
   fundamentals: Record<string, unknown>
   consensus: ConsensusEstimates | null
-  macro: Record<string, unknown>
   lseg_available: boolean
   estimates_surprise_fy0?: EstimatesSurpriseFY0 | null
   instrument_display?: InstrumentDisplay | null
   lseg_blocks?: Record<string, boolean> | null
-  estimate_revisions?: EstimateRevisions | null
 }
 
 export interface MarketContext {
@@ -324,11 +309,19 @@ export interface CompositeScore {
 
 export type DeltaMagnitude = 'minor' | 'material' | 'inflection'
 
+export interface ExpectationBullet {
+  text: string
+  citations: EvidenceCitation[]
+}
+
 export interface ExpectationReality {
   pre_call_market_narrative: string
+  market_expected_sources?: string[]
   pre_call_consensus_snapshot: Record<string, number | null>
   what_changed: string[]
   what_market_is_missing: string[]
+  what_changed_items?: ExpectationBullet[]
+  what_market_is_missing_items?: ExpectationBullet[]
   delta_magnitude: DeltaMagnitude
   citations: EvidenceCitation[]
   methodology: ScoreMethodology | null
@@ -359,44 +352,6 @@ export interface HiddenGem {
   citations: EvidenceCitation[]
 }
 
-export type ThesisOutcome = 'confirmed' | 'falsified' | 'open' | 'unknown'
-export type TrackRecordStatus = 'available' | 'insufficient_history' | 'unavailable'
-
-export interface PriorThesisEntry {
-  event_date: string
-  job_id?: string | null
-  one_liner: string
-  decision: 'Buy' | 'Monitor' | 'Avoid'
-  conviction: 'High' | 'Medium' | 'Low'
-  primary_signal_ids: string[]
-  post_earnings_return_pct?: number | null
-  post_earnings_window?: string | null
-  thesis_outcome?: ThesisOutcome
-  outcome_rationale?: string
-}
-
-export interface TrackRecordSummary {
-  prior_call_count: number
-  confirmed_count: number
-  falsified_count: number
-  open_count: number
-  unknown_count: number
-  comparable_decision_count: number
-  avg_post_earnings_return_pct: number | null
-  return_window: string | null
-  status: TrackRecordStatus
-  rationale: string
-}
-
-export type ThesisEvolution = 'new' | 'evolved' | 'reversed' | 'reinforced'
-
-export interface ThesisMemory {
-  prior_theses: PriorThesisEntry[]
-  thesis_evolution: ThesisEvolution
-  evolution_rationale: string
-  track_record?: TrackRecordSummary
-}
-
 export interface AnalysisReport {
   job_id: string
   created_at: string
@@ -413,7 +368,6 @@ export interface AnalysisReport {
   expectation_reality: ExpectationReality | null
   valuation_linkage: ValuationLinkage | null
   hidden_gems: HiddenGem[]
-  thesis_memory: ThesisMemory | null
   pipeline_warnings: string[]
   model_warnings: string[]
   risk_flags: string[]

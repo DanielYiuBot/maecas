@@ -1,6 +1,6 @@
 # MAECAS — Multi-Agent Earnings Call Analysis System
 
-A local web application that ingests Refinitiv StreetEvents earnings call transcripts in XML format, runs them through an 8-agent LangGraph pipeline, enriches the analysis with live equity and macro data from the LSEG Data Library, and renders a structured investment analysis dashboard.
+A local web application that ingests Refinitiv StreetEvents earnings call transcripts in XML format, runs them through an 8-agent LangGraph pipeline, enriches the analysis with live equity, consensus, and fundamentals data from the LSEG Data Library, and renders a structured investment analysis dashboard.
 
 ## Architecture
 

@@ -21,7 +21,6 @@ from backend.schemas.signals import TradingSignals
 from backend.schemas.sentiment import ScoreMethodology
 from backend.schemas.expectation import (
     HiddenGem,
-    ThesisMemory,
     ValuationLinkage,
     ValuationSensitivityRow,
 )
@@ -332,11 +331,9 @@ def _classify_warnings(
 
 def _composite_scores_with_prior(
     composite_scores: dict,
-    thesis_memory,
     prior_sentiment,
 ) -> dict:
-    """Attach prior_score to each composite score when we can infer it from
-    stored thesis memory or the prior-quarter sentiment agent output."""
+    """Attach prior_score when we can infer it from prior-quarter sentiment."""
     if not composite_scores:
         return composite_scores
 
@@ -351,48 +348,6 @@ def _composite_scores_with_prior(
         if key == "sentiment" and prior_sentiment_score is not None and raw.get("prior_score") is None:
             raw["prior_score"] = prior_sentiment_score
     return composite_scores
-
-
-def _jaccard_ids(a: list[str], b: list[str]) -> float:
-    sa = set(a)
-    sb = set(b)
-    if not sa and not sb:
-        return 0.0
-    return len(sa & sb) / len(sa | sb)
-
-
-def _memory_with_current_thesis(thesis_memory: ThesisMemory | None, signals: TradingSignals | None) -> ThesisMemory | None:
-    """Refine memory once the current thesis exists; the memory agent runs before alpha."""
-    if not thesis_memory or not signals or not signals.core_thesis or not thesis_memory.prior_theses:
-        return thesis_memory
-
-    current = signals.core_thesis
-    current_ids = [
-        s.signal_id
-        for s in (signals.bull_signals + signals.bear_signals)
-        if s.priority_tier == "primary"
-    ]
-    latest = thesis_memory.prior_theses[0]
-    flipped = {current.decision, latest.decision} == {"Buy", "Avoid"}
-    same_decision = current.decision == latest.decision
-    overlap = _jaccard_ids(current_ids, latest.primary_signal_ids)
-
-    if flipped:
-        thesis_memory.thesis_evolution = "reversed"
-        thesis_memory.evolution_rationale = (
-            f"Current {current.decision} thesis reverses the prior {latest.decision} call."
-        )
-    elif same_decision and overlap >= 0.5:
-        thesis_memory.thesis_evolution = "reinforced"
-        thesis_memory.evolution_rationale = (
-            "Current thesis reinforces the prior call with overlapping primary signal IDs."
-        )
-    else:
-        thesis_memory.thesis_evolution = "evolved"
-        thesis_memory.evolution_rationale = (
-            "Current thesis keeps prior context but changes the framing or primary signal mix."
-        )
-    return thesis_memory
 
 
 async def run(state: GraphState) -> dict:
@@ -428,7 +383,6 @@ async def run(state: GraphState) -> dict:
     delta = state.get("delta")
     signals = state.get("signals")
     expectation = state.get("expectation_reality")
-    thesis_memory = state.get("thesis_memory")
 
     if sentiment and sentiment.low_confidence_flag:
         w = "Low confidence: Sentiment analysis"
@@ -468,7 +422,7 @@ async def run(state: GraphState) -> dict:
         data = await _agent.call(system, user, provider, model)
 
         composite_scores = data.get("composite_scores", {})
-        composite_scores = _composite_scores_with_prior(composite_scores, thesis_memory, prior_sentiment)
+        composite_scores = _composite_scores_with_prior(composite_scores, prior_sentiment)
 
         narrative_data = data.get("narrative", [])
         hidden_gems_data = data.get("hidden_gems", [])
@@ -537,7 +491,6 @@ async def run(state: GraphState) -> dict:
                     heuristic="Fallback neutral stance when signal generation is unavailable.",
                 ),
             )
-        thesis_memory = _memory_with_current_thesis(thesis_memory, signals)
         if not narrative:
             narrative = [
                 NarrativeSection(
@@ -575,7 +528,6 @@ async def run(state: GraphState) -> dict:
             expectation_reality=expectation,
             valuation_linkage=valuation_linkage,
             hidden_gems=hidden_gems,
-            thesis_memory=thesis_memory,
             pipeline_warnings=warnings,
             model_warnings=model_warnings,
             risk_flags=risk_flags,
@@ -650,7 +602,6 @@ async def run(state: GraphState) -> dict:
                 expectation_reality=expectation,
                 valuation_linkage=None,
                 hidden_gems=[],
-                thesis_memory=_memory_with_current_thesis(thesis_memory, signals),
                 pipeline_warnings=warnings,
                 model_warnings=model_warnings,
                 risk_flags=risk_flags,

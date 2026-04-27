@@ -55,11 +55,10 @@ The optional prior-quarter transcript is parsed in the same way. Its purpose is 
 
 ## Backend Analytical Pipeline
 
-The analytical backend is a LangGraph pipeline defined in `backend/graph/pipeline.py`. Its shape reflects a research process. First, the transcript is parsed. Then independent agents analyze different dimensions of the call. Market data is fetched after the system knows the company and has enough sentiment context to request relevant macro information. Expectation-versus-reality analysis runs after market context and financial extraction are available. Finally, the alpha agent builds decision-relevant signals, and the orchestrator assembles the finished report.
+The analytical backend is a LangGraph pipeline defined in `backend/graph/pipeline.py`. Its shape reflects a research process. First, the transcript is parsed. Then independent agents analyze different dimensions of the call. Market data is fetched after the system knows the company identity and event date. Expectation-versus-reality analysis runs after market context and financial extraction are available. Finally, the alpha agent builds decision-relevant signals, and the orchestrator assembles the finished report.
 
 ```mermaid
 flowchart TD
-  parse[ParserAgent] --> memory[MemoryAgent]
   parse --> sentiment[SentimentAgent]
   parse --> financials[FinancialsAgent]
   parse --> guidance[GuidanceAgent]
@@ -69,7 +68,6 @@ flowchart TD
   lseg --> market[MarketContextAgent]
   market --> expectation[ExpectationRealityAgent]
   financials --> expectation
-  memory --> alpha[AlphaSignalAgent]
   market --> alpha
   guidance --> alpha
   delta --> alpha
@@ -85,7 +83,7 @@ The pipeline can be summarized as a progression from evidence creation to invest
 | Parser | Current XML, optional prior XML | What is the structured transcript evidence? | Metadata, utterances, presentation text, Q&A text |
 | Sentiment | Parsed presentation and Q&A utterances | How confident, hedged, skeptical, or evasive was the call? | `SentimentProfile` |
 | Financials | Parsed transcript | What numbers did management explicitly state? | `StatedFinancials` |
-| LSEG fetch | Transcript metadata, sentiment macro flags | What external market data is available for this issuer? | `LSEGMarketData` |
+| LSEG fetch | Transcript metadata and event date | What external market data is available for this issuer? | `LSEGMarketData` |
 | Market context | Stated financials and LSEG data | How do transcript facts compare with market data and consensus? | `MarketContext` |
 | Guidance | Parsed transcript | What future events, ranges, or implicit signals did management provide? | `GuidanceCatalysts` |
 | Delta | Current and prior transcript, sentiment | What changed versus the prior quarter? | `QoQDelta` |
@@ -99,7 +97,7 @@ The sentiment agent analyzes language rather than numbers. Its prompt explicitly
 
 The financials agent extracts stated figures. Its responsibility is narrow: capture numbers that management explicitly provided, such as revenue, gross margin, EPS, cash flow, capital expenditure, or guidance ranges. The application separates this from market comparison because a stated figure and an investment implication are not the same thing.
 
-The LSEG and market context modules enrich the transcript with external data. When LSEG is available, the system can fetch instrument metadata, price history, fundamentals, consensus estimates, estimate surprises, estimate revisions, macro snippets, and other relevant market data. The market context agent then compares transcript-derived financials with these external anchors. This lets the dashboard distinguish between a number that looks large in isolation and a number that actually beat or missed expectations.
+The LSEG and market context modules enrich the transcript with external data. When LSEG is available, the system can fetch instrument metadata, price history, fundamentals, consensus estimates, estimate surprises, estimate revisions, and other relevant market data. The market context agent then compares transcript-derived financials with these external anchors. This lets the dashboard distinguish between a number that looks large in isolation and a number that actually beat or missed expectations.
 
 The guidance agent extracts forward-looking information. It looks for explicit ranges, qualitative commitments, catalysts, timelines, invalidation triggers, and implicit signals. Its business question is: what future events did management put on the table, and what would need to happen for those events to matter?
 

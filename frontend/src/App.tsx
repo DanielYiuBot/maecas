@@ -27,6 +27,7 @@ export default function App() {
 
   const { events, done } = useSSE(view === 'progress' ? jobId : null)
   const { report, loading, error } = useAnalysis(jobId, done)
+  const currentReport = report?.job_id === jobId ? report : null
 
   useEffect(() => {
     logger.info('App', 'MAECAS frontend loaded | view=upload')
@@ -40,11 +41,11 @@ export default function App() {
   }
 
   useEffect(() => {
-    if (report && view === 'progress') {
+    if (currentReport && view === 'progress') {
       logger.info('App', `Report ready — transitioning to dashboard | job_id=${jobId}`)
       setView('dashboard')
     }
-  }, [report, view, jobId])
+  }, [currentReport, view, jobId])
 
   useEffect(() => {
     if (error) {
@@ -76,10 +77,10 @@ export default function App() {
               <p className="text-[11px] uppercase tracking-[0.16em] text-text-muted">Earnings Intelligence Console</p>
             </div>
           </div>
-          {report && (
+          {currentReport && (
             <div className="rounded-full border border-border bg-surface-card px-4 py-1.5 text-xs text-text-secondary">
-              {report.metadata.company_name} ({report.metadata.company_ticker})
-              &middot; {report.metadata.event_date.split('T')[0]}
+              {currentReport.metadata.company_name} ({currentReport.metadata.company_ticker})
+              &middot; {currentReport.metadata.event_date.split('T')[0]}
             </div>
           )}
         </div>
@@ -115,39 +116,37 @@ export default function App() {
           </div>
         )}
 
-        {view === 'dashboard' && report && (
-          <TranscriptProvider utterances={report.transcript_utterances ?? []}>
+        {view === 'dashboard' && currentReport && (
+          <TranscriptProvider utterances={currentReport.transcript_utterances ?? []}>
             <DedupRegistryProvider>
             <div className="mx-auto w-full max-w-[1120px] space-y-6">
-              <CoreThesisHeader signals={report.signals} />
+              <CoreThesisHeader signals={currentReport.signals} />
 
-              <ExpectationRealityPanel expectation={report.expectation_reality} />
+              <ExpectationRealityPanel expectation={currentReport.expectation_reality} />
 
-              <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-                <RatingCard report={report} />
-              </div>
+              <RatingCard report={currentReport} />
 
-              <SignalFeed signals={report.signals} />
+              <SignalFeed signals={currentReport.signals} />
 
-              <FinancialsChart financials={report.financials} />
+              <FinancialsChart financials={currentReport.financials} />
 
               <LSEGInsightsPanel
-                lseg_data={report.lseg_data}
-                market={report.market}
-                metadata={report.metadata}
+                lseg_data={currentReport.lseg_data}
+                market={currentReport.market}
+                metadata={currentReport.metadata}
               />
 
-              <SentimentPanel sentiment={report.sentiment} />
+              <SentimentPanel sentiment={currentReport.sentiment} />
 
-              <CatalystTimeline guidance={report.guidance} />
+              <CatalystTimeline guidance={currentReport.guidance} />
 
-              <DeltaView delta={report.delta} />
+              <DeltaView delta={currentReport.delta} />
 
               <WhatChangedPanel
-                narrative={report.narrative}
-                hiddenGems={report.hidden_gems ?? []}
-                modelWarnings={report.model_warnings ?? []}
-                riskFlags={report.risk_flags ?? []}
+                narrative={currentReport.narrative}
+                hiddenGems={currentReport.hidden_gems ?? []}
+                modelWarnings={currentReport.model_warnings ?? []}
+                riskFlags={currentReport.risk_flags ?? []}
               />
             </div>
             </DedupRegistryProvider>

@@ -167,23 +167,21 @@ flowchart LR
 |---|---|---|---|
 | Anthropic API | LLM execution (optional per prompt) | Agent warning/error path; pipeline attempts to continue where possible | `maecas/backend/settings.py`, `.env` |
 | Google Gemini API | LLM execution (default in current prompts) | Same as above | `maecas/backend/settings.py`, `.env`, `prompts/agent_*.yaml` |
-| LSEG Data Library | Price, fundamentals, consensus, news, macro | Fail-soft; returns empty/no-data structures instead of crashing pipeline | `maecas/backend/services/lseg.py`, `.env`, `lseg-data.config.json` |
+| LSEG Data Library | Price, fundamentals, consensus, estimate surprise/revisions, instrument metadata | Fail-soft; returns empty/no-data structures instead of crashing pipeline | `maecas/backend/services/lseg.py`, `.env`, `lseg-data.config.json` |
 | SQLite (`aiosqlite`) | Job state + persisted report JSON | Local persistence only; DB init on app startup | `maecas/backend/db/database.py` |
 
 ### LSEG Data Library (implementation patterns)
 
 All LSEG calls are centralized in [`maecas/backend/services/lseg.py`](maecas/backend/services/lseg.py) and invoked from Agent 04 (`fetch_lseg` / `market_ctx`). Session lifecycle (platform vs desktop) is documented in [`maecas/README.md`](maecas/README.md).
 
-**Local reference notebooks** (equity-research examples, not executed by the app) live under [`../lseg_references/`](../lseg_references/) (repository root). They mirror LSEG’s own patterns for `get_data` field strings, periods, and news. When changing LSEG usage, align with those notebooks or the official [LSEG Data Library for Python](https://cdn.refinitiv.com/public/lseg-lib-python-doc/2.0.0.2/book/en/index.html) docs rather than inventing parameter combinations.
+**Local reference notebooks** (equity-research examples, not executed by the app) live under [`../lseg_references/`](../lseg_references/) (repository root). They mirror LSEG’s own patterns for `get_data` field strings and periods. When changing LSEG usage, align with those notebooks or the official [LSEG Data Library for Python](https://cdn.refinitiv.com/public/lseg-lib-python-doc/2.0.0.2/book/en/index.html) docs rather than inventing parameter combinations.
 
 | Concern | Approach in MAECAS | Why |
 |---|---|---|
 | **Fundamentals (annual)** | Prefer **plain TR field names** + `parameters` (e.g. calendar `SDate`/`EDate` + `Frq: FY`, or `Period: FY0` / `FY-1` with `Frq: FY`) instead of **parenthesized** formulas in `fields` | Some sessions reject `TR.Foo(Period=…)` in `fields` (*unexpected '(' in formula*). Bare `Period: "FY"` in parameters is also invalid; use **`FY0`**, **`FY1`**, etc. |
 | **Consensus (FY1 means)** | Plain names — `TR.EPSMeanEstimate`, `TR.RevenueMeanEstimate`, `TR.EBITDAMean`, rec-count fields — with `parameters={"Period": "FY1", "Frq": "FY"}` (fallback swaps `TR.RevenueMeanEstimate` → `TR.RevenueMean`) | Same FY1 intent as the notebooks without parenthesized TR strings. |
 | **Parsing `get_data` output** | `fetch_all` uses `_get_data_cell(...)` so values resolve when column names include parentheses (e.g. `TR.EPSMeanEstimate(Period=FY1)`) | `DataFrame.to_dict()` keys match the full field string, not the legacy short names. |
-| **News headlines** | **`lseg.data.news.get_headlines`**: query like `R:{ric} AND Language:LEN AND Source:RTRS`, plus `start`, `end`, `count`; records are **JSON-sanitized** (e.g. pandas `Timestamp` → ISO string) before they enter `LSEGMarketData` | `get_data` with `TR.HeadlineText` / `TR.NewsDateTime` often fails with a formula/field error. Headline dataframes can contain non-JSON types that break `json.dumps` in Agent 04 unless normalized. |
 | **Price window** | `get_history` with daily OHLCV around the earnings date | Unchanged; uses history fields, not TR fundamentals parameters. |
-| **Macro snippets** | `get_data` on macro RICs for bid/ask/last | Small set driven by sentiment `macro_flags`. |
 
 If you add new LSEG pulls: prefer **one batched `get_data`** per concern, validate **field + period** syntax against a notebook snippet, and keep **fail-soft** behavior (log + empty structure) so Agent 04 never aborts the pipeline.
 
@@ -204,7 +202,7 @@ If you add new LSEG pulls: prefer **one batched `get_data`** per concern, valida
 | `maecas/backend/prompts/*.yaml` | Prompt text + per-agent provider/model overrides |
 | `maecas/backend/services/llm.py` | Provider-agnostic model call abstraction |
 | `maecas/backend/services/lseg.py` | LSEG session/data retrieval and fallback logic |
-| `../lseg_references/*.ipynb` | Optional LSEG equity-research examples (field/period/news patterns) |
+| `../lseg_references/*.ipynb` | Optional LSEG equity-research examples (field/period patterns) |
 | `maecas/backend/services/xml_parser.py` | Deterministic XML parser + role/section extraction |
 | `maecas/backend/schemas/*.py` | Pydantic domain contracts |
 | `maecas/backend/db/*` | SQLAlchemy model/session setup |
@@ -317,7 +315,7 @@ This section is practical and implementation-oriented.
 ## Notes for Future Maintainers
 
 - The app is designed to **degrade gracefully** (especially around LSEG availability).
-- For LSEG, avoid invalid `Period` tokens (e.g. bare `"FY"`); prefer **`FY0` / `FY1`** in `parameters`. If parenthesized `TR.*(Period=…)` strings fail on your access point, use **plain TR names + `parameters`** (see §4). Use **`news.get_headlines`** for headlines, not `TR.HeadlineText` on `get_data`; sanitize headline rows for JSON.
+- For LSEG, avoid invalid `Period` tokens (e.g. bare `"FY"`); prefer **`FY0` / `FY1`** in `parameters`. If parenthesized `TR.*(Period=…)` strings fail on your access point, use **plain TR names + `parameters`** (see §4).
 - Prompt files are first-class logic; treat prompt edits like code changes.
 - The orchestrator is the final integration point; most cross-agent consistency issues surface there.
 - If adding new agent outputs, propagate through: graph state -> schema -> orchestrator -> API result -> frontend type -> component.

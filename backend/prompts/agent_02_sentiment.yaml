@@ -44,7 +44,6 @@ system: |
   REQUIREMENTS:
   - Provide at least 1 EvidenceCitation per scored dimension.
   - Set low_confidence_flag=true if confidence < 0.6.
-  - macro_flags should be a list of relevant macro themes mentioned (e.g. "FX", "tariffs", "consumer_sentiment", "inflation", "interest_rates").
   - register must be one of: "Confident", "Cautious", "Defensive", "Optimistic".
 
   OUTPUT SCHEMA: Return ONLY valid JSON matching SentimentProfile.
@@ -69,7 +68,6 @@ system: |
       }}
     ],
     "register": str,
-    "macro_flags": [str],
     "evidence_citations": [
       {{"speaker": str, "section": str, "utterance_index": int, "quote": str}}
     ],

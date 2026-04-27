@@ -9,11 +9,20 @@ export function useAnalysis(jobId: string | null, done: boolean) {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
+    setReport(null)
+    setError(null)
+    setLoading(false)
+  }, [jobId])
+
+  useEffect(() => {
     if (!jobId || !done) return
+
+    let cancelled = false
     logger.info('Analysis', `Fetching report | job_id=${jobId}`)
     setLoading(true)
     getResult(jobId)
       .then((r) => {
+        if (cancelled) return
         if ('job_id' in r && 'narrative' in r) {
           const sections = ['sentiment', 'financials', 'market', 'guidance', 'delta', 'signals'] as const
           const report = r as AnalysisReport
@@ -26,10 +35,17 @@ export function useAnalysis(jobId: string | null, done: boolean) {
         }
       })
       .catch((e) => {
+        if (cancelled) return
         logger.error('Analysis', `Fetch failed | job_id=${jobId} | error=${e.message}`)
         setError(e.message)
       })
-      .finally(() => setLoading(false))
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
   }, [jobId, done])
 
   return { report, loading, error }

@@ -7,10 +7,22 @@ from pydantic import BaseModel, Field
 from backend.schemas.sentiment import EvidenceCitation, ScoreMethodology
 
 
+class ExpectationBullet(BaseModel):
+    text: str
+    citations: list[EvidenceCitation] = Field(
+        default_factory=list,
+        description="Transcript evidence that supports this specific bullet.",
+    )
+
+
 class ExpectationReality(BaseModel):
     pre_call_market_narrative: str = Field(
         ...,
-        description="1-3 sentence summary of what the market expected heading into the call, synthesised from pre-call news and consensus.",
+        description="1-3 sentence summary of what the market expected heading into the call, synthesized from consensus and available market context.",
+    )
+    market_expected_sources: list[str] = Field(
+        default_factory=list,
+        description="Human-readable source labels used to ground the pre-call market narrative.",
     )
     pre_call_consensus_snapshot: dict[str, Optional[float]] = Field(
         default_factory=dict,
@@ -23,6 +35,14 @@ class ExpectationReality(BaseModel):
     what_market_is_missing: list[str] = Field(
         default_factory=list,
         description="Material points the model believes the market has not yet fully priced.",
+    )
+    what_changed_items: list[ExpectationBullet] = Field(
+        default_factory=list,
+        description="Structured what_changed bullets with citations paired to each bullet.",
+    )
+    what_market_is_missing_items: list[ExpectationBullet] = Field(
+        default_factory=list,
+        description="Structured what_market_is_missing bullets with citations paired to each bullet.",
     )
     delta_magnitude: Literal["minor", "material", "inflection"] = "material"
     citations: list[EvidenceCitation] = Field(default_factory=list)
@@ -62,51 +82,3 @@ class HiddenGem(BaseModel):
     why_it_matters: str
     mention_count: int = Field(default=1, ge=0)
     citations: list[EvidenceCitation] = Field(default_factory=list)
-
-
-ThesisOutcome = Literal["confirmed", "falsified", "open", "unknown"]
-TrackRecordStatus = Literal["available", "insufficient_history", "unavailable"]
-
-
-class PriorThesisEntry(BaseModel):
-    event_date: str
-    job_id: Optional[str] = None
-    one_liner: str
-    decision: Literal["Buy", "Monitor", "Avoid"]
-    conviction: Literal["High", "Medium", "Low"]
-    primary_signal_ids: list[str] = Field(default_factory=list)
-    post_earnings_return_pct: Optional[float] = Field(
-        default=None,
-        description="Post-call price return over the stored window, when available.",
-    )
-    post_earnings_window: Optional[str] = Field(
-        default=None,
-        description="Return window label, e.g. 10d.",
-    )
-    thesis_outcome: ThesisOutcome = Field(
-        default="unknown",
-        description="Deterministic outcome tag from available post-call return/falsifier evidence.",
-    )
-    outcome_rationale: str = ""
-
-
-class TrackRecordSummary(BaseModel):
-    prior_call_count: int = 0
-    confirmed_count: int = 0
-    falsified_count: int = 0
-    open_count: int = 0
-    unknown_count: int = 0
-    comparable_decision_count: int = 0
-    avg_post_earnings_return_pct: Optional[float] = None
-    return_window: Optional[str] = None
-    status: TrackRecordStatus = "unavailable"
-    rationale: str = ""
-
-
-class ThesisMemory(BaseModel):
-    """Cross-quarter memory: prior theses for the same ticker."""
-
-    prior_theses: list[PriorThesisEntry] = Field(default_factory=list)
-    thesis_evolution: Literal["new", "evolved", "reversed", "reinforced"] = "new"
-    evolution_rationale: str = ""
-    track_record: TrackRecordSummary = Field(default_factory=TrackRecordSummary)

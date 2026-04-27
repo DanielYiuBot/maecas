@@ -9,7 +9,7 @@ const STOPWORDS = new Set([
   'should', 'could', 'may', 'might', 'can',
 ])
 
-/** Promoted from ThesisTracker so multiple cards can share the same fingerprint logic. */
+/** Shared fingerprint logic for suppressing repeated dashboard facts. */
 export function tokenize(text: string): Set<string> {
   return new Set(
     text

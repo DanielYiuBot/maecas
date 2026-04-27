@@ -5,7 +5,6 @@ import type {
   AnalysisReport,
   BeatMissFlag,
   ConsensusEstimates,
-  EstimateRevisions,
   EstimatesSurpriseFY0,
   LSEGMarketData,
   MetricSurpriseSnapshot,
@@ -21,7 +20,6 @@ const BLOCK_LABELS: Record<string, string> = {
   consensus: 'Consensus (event-aligned)',
   estimates_surprise_fy0: 'Estimates vs actual (FY0)',
   instrument_display: 'Instrument metadata',
-  estimate_revisions: 'Estimate revisions',
 }
 
 function fmtNum(n: number | null | undefined, digits = 2): string {
@@ -168,94 +166,6 @@ function ConsensusBlock({ c }: { c: ConsensusEstimates }) {
   )
 }
 
-function EstimateRevisionsBlock({ rev }: { rev: EstimateRevisions }) {
-  const order: Array<{ key: keyof EstimateRevisions; label: string }> = [
-    { key: 'window_90d_ago', label: 'T-90d' },
-    { key: 'window_60d_ago', label: 'T-60d' },
-    { key: 'window_30d_ago', label: 'T-30d' },
-    { key: 'latest', label: 'Now' },
-  ]
-  const epsSeries = order
-    .map(({ key, label }) => ({
-      label,
-      eps: rev[key]?.eps_mean ?? null,
-    }))
-    .filter((p) => p.eps !== null)
-  const revSeries = order
-    .map(({ key, label }) => ({
-      label,
-      revenue: rev[key]?.revenue_mean ?? null,
-    }))
-    .filter((p) => p.revenue !== null)
-
-  if (epsSeries.length < 2 && revSeries.length < 2) return null
-
-  const epsDelta =
-    epsSeries.length >= 2 && epsSeries[0].eps && epsSeries[epsSeries.length - 1].eps
-      ? ((epsSeries[epsSeries.length - 1].eps! - epsSeries[0].eps!) / Math.abs(epsSeries[0].eps!)) * 100
-      : null
-  const revDelta =
-    revSeries.length >= 2 && revSeries[0].revenue && revSeries[revSeries.length - 1].revenue
-      ? ((revSeries[revSeries.length - 1].revenue! - revSeries[0].revenue!) /
-          Math.abs(revSeries[0].revenue!)) *
-        100
-      : null
-
-  return (
-    <div className="rounded-lg border border-accent-100 bg-accent-50/40 p-4">
-      <h5 className="mb-3 text-xs font-semibold uppercase tracking-wide text-accent-700">
-        FY1 estimate revisions
-      </h5>
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-        {epsSeries.length >= 2 && (
-          <div>
-            <div className="mb-1 flex items-baseline justify-between">
-              <span className="text-xs text-text-secondary">EPS mean</span>
-              <span
-                className={`font-mono text-xs font-medium ${
-                  (epsDelta ?? 0) > 0 ? 'text-bull-700' : (epsDelta ?? 0) < 0 ? 'text-bear-700' : 'text-text-muted'
-                }`}
-              >
-                {epsDelta === null ? '—' : `${epsDelta > 0 ? '+' : ''}${epsDelta.toFixed(1)}% 90d`}
-              </span>
-            </div>
-            <div className="h-14">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={epsSeries}>
-                  <Line type="monotone" dataKey="eps" stroke={chartTheme.accent} strokeWidth={2} dot={false} />
-                  <ReTooltip contentStyle={{ background: chartTheme.tooltipBg, borderColor: chartTheme.tooltipBorder }} />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-        )}
-        {revSeries.length >= 2 && (
-          <div>
-            <div className="mb-1 flex items-baseline justify-between">
-              <span className="text-xs text-text-secondary">Revenue mean</span>
-              <span
-                className={`font-mono text-xs font-medium ${
-                  (revDelta ?? 0) > 0 ? 'text-bull-700' : (revDelta ?? 0) < 0 ? 'text-bear-700' : 'text-text-muted'
-                }`}
-              >
-                {revDelta === null ? '—' : `${revDelta > 0 ? '+' : ''}${revDelta.toFixed(1)}% 90d`}
-              </span>
-            </div>
-            <div className="h-14">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={revSeries}>
-                  <Line type="monotone" dataKey="revenue" stroke={chartTheme.line} strokeWidth={2} dot={false} />
-                  <ReTooltip contentStyle={{ background: chartTheme.tooltipBg, borderColor: chartTheme.tooltipBorder }} />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
 function formatLsegFieldName(rawKey: string): string {
   let s = rawKey
   const paren = s.indexOf('(')
@@ -370,21 +280,19 @@ function CoverageBlocks({ blocks }: { blocks: Record<string, boolean> | null | u
   if (!blocks) return null
   return (
     <div className="flex flex-wrap gap-2">
-      {Object.entries(blocks)
-        .filter(([key]) => key !== 'macro')
-        .map(([key, ok]) => (
-          <span
-            key={key}
-            className={`rounded-full px-2.5 py-1 text-xs font-medium ${
-              ok
-                ? 'border border-bull-100 bg-bull-50 text-bull-900'
-                : 'border border-ink-200 bg-ink-100 text-text-muted'
-            }`}
-          >
-            {BLOCK_LABELS[key] ?? key}
-            {ok ? '' : ' · empty'}
-          </span>
-        ))}
+      {Object.entries(blocks).map(([key, ok]) => (
+        <span
+          key={key}
+          className={`rounded-full px-2.5 py-1 text-xs font-medium ${
+            ok
+              ? 'border border-bull-100 bg-bull-50 text-bull-900'
+              : 'border border-ink-200 bg-ink-100 text-text-muted'
+          }`}
+        >
+          {BLOCK_LABELS[key] ?? key}
+          {ok ? '' : ' · empty'}
+        </span>
+      ))}
     </div>
   )
 }
@@ -410,7 +318,7 @@ export function LSEGInsightsPanel({ lseg_data, market, metadata }: Props) {
   const coverageGap = (() => {
     const blocks = lseg?.lseg_blocks
     if (!blocks) return null
-    const entries = Object.entries(blocks).filter(([k]) => k !== 'macro')
+    const entries = Object.entries(blocks)
     if (entries.length === 0) return null
     const total = entries.length
     const missing = entries.filter(([, ok]) => !ok).map(([key]) => BLOCK_LABELS[key] ?? key)
@@ -480,8 +388,6 @@ export function LSEGInsightsPanel({ lseg_data, market, metadata }: Props) {
               </p>
             </div>
           )}
-
-          {lseg?.estimate_revisions && <EstimateRevisionsBlock rev={lseg.estimate_revisions} />}
 
           {hasEventEstimateCards && (
             <div>

@@ -13,7 +13,6 @@ from backend.schemas.expectation import (
     ExpectationReality,
     ValuationLinkage,
     HiddenGem,
-    ThesisMemory,
 )
 
 
@@ -57,7 +56,6 @@ class AnalysisReport(BaseModel):
     expectation_reality: Optional[ExpectationReality] = None
     valuation_linkage: Optional[ValuationLinkage] = None
     hidden_gems: list[HiddenGem] = Field(default_factory=list)
-    thesis_memory: Optional[ThesisMemory] = None
 
     pipeline_warnings: list[str] = Field(default_factory=list)
     model_warnings: list[str] = Field(

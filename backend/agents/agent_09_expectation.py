@@ -26,6 +26,44 @@ class ExpectationAgent(BaseAgent):
 _agent = ExpectationAgent()
 
 
+def _normalize_expectation(expectation: ExpectationReality) -> ExpectationReality:
+    """Keep legacy string arrays and newer per-bullet evidence fields in sync."""
+    if not expectation.what_changed and expectation.what_changed_items:
+        expectation.what_changed = [item.text for item in expectation.what_changed_items]
+    if not expectation.what_market_is_missing and expectation.what_market_is_missing_items:
+        expectation.what_market_is_missing = [
+            item.text for item in expectation.what_market_is_missing_items
+        ]
+
+    if not expectation.citations:
+        seen: set[tuple[str, str, int, str]] = set()
+        paired_citations = []
+        for item in (
+            expectation.what_changed_items
+            + expectation.what_market_is_missing_items
+        ):
+            for citation in item.citations:
+                key = (
+                    citation.speaker,
+                    citation.section,
+                    citation.utterance_index,
+                    citation.quote,
+                )
+                if key in seen:
+                    continue
+                seen.add(key)
+                paired_citations.append(citation)
+        expectation.citations = paired_citations
+
+    if not expectation.market_expected_sources:
+        expectation.market_expected_sources = [
+            "LSEG FY1 consensus",
+            "stated financials",
+            "market context and beat/miss flags",
+        ]
+    return expectation
+
+
 async def run(state: GraphState) -> dict:
     t0 = time.perf_counter()
     job_id = state.get("job_id", "unknown")
@@ -60,7 +98,6 @@ async def run(state: GraphState) -> dict:
 
     try:
         utterances = [u.model_dump() for u in transcript.utterances]
-        pre_call_news: list[dict] = []
         consensus_payload = lseg_data.consensus.model_dump() if lseg_data.consensus else None
 
         system, user, provider, model = _agent.load_prompt(
@@ -68,7 +105,6 @@ async def run(state: GraphState) -> dict:
             ticker=transcript.metadata.company_ticker,
             event_date=transcript.metadata.event_date,
             utterances_json=json.dumps(utterances, indent=2),
-            news_json=json.dumps(pre_call_news, indent=2, default=str),
             consensus_json=json.dumps(consensus_payload, indent=2, default=str),
             financials_json=json.dumps(financials.model_dump(), indent=2) if financials else "null",
             market_json=json.dumps(market_context.model_dump(), indent=2) if market_context else "null",
@@ -76,6 +112,7 @@ async def run(state: GraphState) -> dict:
 
         data = await _agent.call(system, user, provider, model)
         expectation = await _agent.parse_output(data)
+        expectation = _normalize_expectation(expectation)
 
         if progress:
             await progress(stage="agents", agent="expectation", status="complete", progress_pct=68, message="Expectation synthesis complete.")

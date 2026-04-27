@@ -2,14 +2,13 @@
 
 Wires every agent into a DAG:
 
-  parse → memory (prior theses)
   parse → sentiment_agent
   parse → financials_agent
   parse → guidance_agent
   parse → delta_agent
   [financials_agent, sentiment_agent] → lseg → market_ctx
   [market_ctx, financials_agent] → expectation
-  [market_ctx, guidance_agent, delta_agent, expectation, memory] → alpha
+  [market_ctx, guidance_agent, delta_agent, expectation] → alpha
   alpha → synthesize
 """
 
@@ -27,13 +26,12 @@ from backend.agents import (
     agent_07_alpha,
     agent_08_orchestrator,
     agent_09_expectation,
-    agent_10_memory,
 )
 
 logger = logging.getLogger(__name__)
 
 NODES = [
-    "parse", "memory", "sentiment_agent", "financials_agent", "lseg",
+    "parse", "sentiment_agent", "financials_agent", "lseg",
     "market_ctx", "guidance_agent", "delta_agent", "expectation",
     "alpha", "synthesize",
 ]
@@ -43,7 +41,6 @@ def build_graph() -> StateGraph:
     g = StateGraph(GraphState)
 
     g.add_node("parse", agent_01_parser.run)
-    g.add_node("memory", agent_10_memory.run)
     g.add_node("sentiment_agent", agent_02_sentiment.run)
     g.add_node("financials_agent", agent_03_financials.run)
     g.add_node("lseg", agent_04_market.fetch_lseg)
@@ -56,7 +53,6 @@ def build_graph() -> StateGraph:
 
     g.add_edge(START, "parse")
 
-    g.add_edge("parse", "memory")
     g.add_edge("parse", "sentiment_agent")
     g.add_edge("parse", "financials_agent")
     g.add_edge("parse", "guidance_agent")
@@ -68,7 +64,7 @@ def build_graph() -> StateGraph:
     g.add_edge(["market_ctx", "financials_agent"], "expectation")
 
     g.add_edge(
-        ["market_ctx", "guidance_agent", "delta_agent", "expectation", "memory"],
+        ["market_ctx", "guidance_agent", "delta_agent", "expectation"],
         "alpha",
     )
 

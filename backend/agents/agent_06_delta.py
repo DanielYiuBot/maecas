@@ -15,7 +15,7 @@ import time
 from typing import Optional
 
 from backend.agents.base import BaseAgent
-from backend.schemas.delta import LanguageDrift, QoQDelta
+from backend.schemas.delta import LanguageDrift, QoQDelta, TopicDelta
 from backend.graph.state import GraphState
 
 logger = logging.getLogger(__name__)
@@ -111,6 +111,48 @@ def _merge_language_drift(
     )
 
 
+def _phrase_to_topic(phrase: str) -> str:
+    cleaned = re.sub(r"\s+", " ", phrase.strip(" .,:;")).strip()
+    if not cleaned:
+        return ""
+    return f"Prior phrase: {cleaned}"
+
+
+def _ensure_removed_phrase_topics(delta: QoQDelta) -> None:
+    """Bridge deterministic phrase drift into topic buckets when the LLM omits drops."""
+    drift = delta.language_drift
+    if not drift or not drift.removed_phrases:
+        return
+
+    dropped_statuses = {"de_emphasized", "resolved"}
+    has_dropped_topic = any(
+        row.novelty_status.lower() in dropped_statuses
+        for row in delta.topic_deltas
+    )
+    if has_dropped_topic:
+        return
+
+    existing_topics = {row.topic.strip().lower() for row in delta.topic_deltas}
+    candidates: list[TopicDelta] = []
+    for phrase in drift.removed_phrases:
+        topic = _phrase_to_topic(phrase)
+        if not topic or topic.lower() in existing_topics:
+            continue
+        existing_topics.add(topic.lower())
+        candidates.append(
+            TopicDelta(
+                topic=topic,
+                novelty_status="de_emphasized",
+                sentiment_delta=0.0,
+                supporting_citations=[],
+            )
+        )
+        if len(candidates) >= 5:
+            break
+
+    delta.topic_deltas.extend(candidates)
+
+
 async def run(state: GraphState) -> dict:
     t0 = time.perf_counter()
     job_id = state.get("job_id", "unknown")
@@ -157,6 +199,7 @@ async def run(state: GraphState) -> dict:
             prior_transcript.presentation_text or "",
         )
         delta.language_drift = _merge_language_drift(delta.language_drift, deterministic)
+        _ensure_removed_phrase_topics(delta)
 
         if progress:
             await progress(stage="agents", agent="delta", status="complete", progress_pct=60, message="Quarter comparison complete.")

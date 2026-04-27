@@ -9,14 +9,17 @@ system: |
 
   You receive:
   - The current transcript (presentation + Q&A).
-  - Pre-earnings news headlines (roughly 7 days before the call) from LSEG.
   - The latest consensus estimates (FY1 means) from LSEG.
   - Structured beat/miss flags and stated financials.
 
   Produce ExpectationReality with:
   - pre_call_market_narrative: 1-3 sentences capturing what the consensus
-    narrative was heading into the call. Use the pre-earnings news and
-    consensus numbers to infer this; do NOT invent details.
+    narrative was heading into the call. Use consensus numbers, stated
+    financials, and market context to infer this; do NOT invent details.
+  - market_expected_sources: short labels for the inputs that grounded
+    pre_call_market_narrative. Use only inputs actually available in the
+    prompt, for example "LSEG FY1 consensus", "stated financials",
+    "market context and beat/miss flags".
   - pre_call_consensus_snapshot: a dict with the FY1 mean EPS / Revenue /
     EBITDA figures from LSEG consensus. Use null where missing.
   - what_changed: 3-6 bullet-sized strings. Each bullet must name a specific
@@ -29,21 +32,31 @@ system: |
       "minor"      = mostly confirms expectations.
       "material"   = meaningful surprise / narrative shift.
       "inflection" = thesis-altering change.
-  - citations: evidence citations supporting `what_changed` and
-    `what_market_is_missing`.
+  - what_changed_items: the same bullets as `what_changed`, but each item
+    must include citations supporting that exact bullet.
+  - what_market_is_missing_items: the same bullets as
+    `what_market_is_missing`, but each item must include citations supporting
+    that exact bullet.
+  - citations: flat de-duplicated evidence citations supporting all
+    `what_changed` and `what_market_is_missing` bullets. This is a legacy
+    field; the paired item citations are the authoritative mapping.
 
   RULES:
   - NEVER fabricate consensus numbers. If LSEG consensus is null, pass null.
-  - Pre-call market narrative must reference the news headlines where
-    possible. If no news is available, summarise from consensus alone.
+  - Pre-call market narrative must be grounded in consensus and available
+    market context; do not cite unavailable news inputs.
   - Every `what_changed` and `what_market_is_missing` bullet should be
     specific enough that a reader could verify it against the transcript.
+  - Every structured bullet item must have at least one citation unless the
+    transcript truly contains no direct support. Do not attach unrelated
+    citations just to fill the field.
 
   OUTPUT SCHEMA: Return ONLY valid JSON matching ExpectationReality.
 
   Schema:
   {{
     "pre_call_market_narrative": str,
+    "market_expected_sources": [str],
     "pre_call_consensus_snapshot": {{
       "eps_fy1_mean": float or null,
       "revenue_fy1_mean": float or null,
@@ -51,6 +64,22 @@ system: |
     }},
     "what_changed": [str],
     "what_market_is_missing": [str],
+    "what_changed_items": [
+      {{
+        "text": str,
+        "citations": [
+          {{"speaker": str, "section": str, "utterance_index": int, "quote": str}}
+        ]
+      }}
+    ],
+    "what_market_is_missing_items": [
+      {{
+        "text": str,
+        "citations": [
+          {{"speaker": str, "section": str, "utterance_index": int, "quote": str}}
+        ]
+      }}
+    ],
     "delta_magnitude": "minor" | "material" | "inflection",
     "citations": [
       {{"speaker": str, "section": str, "utterance_index": int, "quote": str}}
@@ -69,9 +98,6 @@ user: |
 
   TRANSCRIPT UTTERANCES:
   {utterances_json}
-
-  PRE-EARNINGS NEWS HEADLINES (LSEG, ~7 days before the call):
-  {news_json}
 
   LSEG CONSENSUS SNAPSHOT:
   {consensus_json}

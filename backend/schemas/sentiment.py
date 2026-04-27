@@ -45,7 +45,6 @@ class SentimentProfile(BaseModel):
     analyst_skepticism: int = Field(ge=1, le=10)
     evasion_scores: list[EvasionScore]
     register: str
-    macro_flags: list[str]
     evidence_citations: list[EvidenceCitation]
     confidence: float = Field(ge=0.0, le=1.0)
     low_confidence_flag: bool

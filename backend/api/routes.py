@@ -12,7 +12,7 @@ from sqlalchemy import select
 
 from backend.api.sse import sse_manager, make_progress_callback, format_sse
 from backend.db.database import async_session
-from backend.db.models import AnalysisJob, ThesisHistory
+from backend.db.models import AnalysisJob
 from backend.graph.pipeline import build_graph
 from backend.settings import settings
 
@@ -28,72 +28,6 @@ def _get_graph():
     if _compiled_graph is None:
         _compiled_graph = build_graph()
     return _compiled_graph
-
-
-def _classify_thesis_outcome(action: str | None, post_return: float | None) -> tuple[str, str]:
-    """Deterministic first-pass track record from the available post-call window."""
-    if post_return is None:
-        return "unknown", "No post-call price window available yet."
-    if action == "Buy":
-        if post_return >= 0:
-            return "confirmed", f"Buy call followed by {post_return:+.1f}% post-call return."
-        if post_return <= -5:
-            return "falsified", f"Buy call followed by {post_return:+.1f}% post-call drawdown."
-        return "open", f"Buy call return was {post_return:+.1f}%, inside the neutral band."
-    if action == "Avoid":
-        if post_return <= 0:
-            return "confirmed", f"Avoid call followed by {post_return:+.1f}% post-call return."
-        if post_return >= 5:
-            return "falsified", f"Avoid call followed by {post_return:+.1f}% post-call rally."
-        return "open", f"Avoid call return was {post_return:+.1f}%, inside the neutral band."
-    return "open", f"Monitor call tracked with {post_return:+.1f}% post-call return."
-
-
-async def _persist_thesis_history(job_id: str, report) -> None:
-    """Insert a ThesisHistory row after a successful analysis so future runs for the
-    same ticker can read cross-quarter memory. Silent no-op on any failure because
-    this is a non-essential side effect."""
-    if not report or not report.signals or not report.signals.core_thesis:
-        return
-    try:
-        ct = report.signals.core_thesis
-        ticker = report.metadata.company_ticker if report.metadata else None
-        event_date = report.metadata.event_date if report.metadata else None
-        if not ticker:
-            return
-
-        primary_ids = [
-            s.signal_id
-            for s in (report.signals.bull_signals + report.signals.bear_signals)
-            if s.priority_tier == "primary"
-        ]
-
-        mgmt_p = report.sentiment.mgmt_confidence_presentation if report.sentiment else None
-        mgmt_q = report.sentiment.mgmt_confidence_qa if report.sentiment else None
-        post_return = report.market.price_post_earnings_10d if report.market else None
-        outcome, outcome_rationale = _classify_thesis_outcome(ct.decision, post_return)
-
-        async with async_session() as session:
-            entry = ThesisHistory(
-                job_id=job_id,
-                ticker=ticker,
-                event_date=event_date,
-                one_liner=ct.one_liner,
-                decision=ct.decision,
-                conviction=ct.conviction,
-                primary_signal_ids=json.dumps(primary_ids),
-                falsifiers_json=json.dumps(ct.what_would_change_this),
-                post_earnings_return_pct=post_return,
-                post_earnings_window="10d" if post_return is not None else None,
-                thesis_outcome=outcome,
-                outcome_rationale=outcome_rationale,
-                mgmt_confidence_presentation=mgmt_p,
-                mgmt_confidence_qa=mgmt_q,
-            )
-            session.add(entry)
-            await session.commit()
-    except Exception as e:
-        logger.warning("persist_thesis_history failed | job_id=%s | err=%s", job_id, e)
 
 
 async def _run_pipeline(job_id: str, current_xml: str, prior_xml: str | None):
@@ -136,7 +70,6 @@ async def _run_pipeline(job_id: str, current_xml: str, prior_xml: str | None):
             "signals": None,
             "expectation_reality": None,
             "valuation_linkage": None,
-            "thesis_memory": None,
             "report": None,
             "pipeline_warnings": [],
         }
@@ -162,9 +95,6 @@ async def _run_pipeline(job_id: str, current_xml: str, prior_xml: str | None):
                     job.error_message = "Pipeline completed but no report generated"
                 job.updated_at = datetime.now(timezone.utc)
                 await session.commit()
-
-        if report:
-            await _persist_thesis_history(job_id, report)
 
         elapsed = _time.perf_counter() - t0
         logger.info(

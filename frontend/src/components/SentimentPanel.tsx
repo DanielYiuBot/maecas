@@ -1,4 +1,4 @@
-import type { EvasionScore, QuestionQuality, SentimentProfile } from '../types/api'
+import type { EvasionScore, EvidenceCitation, QuestionQuality, SentimentProfile } from '../types/api'
 import { CitationButton } from './CitationButton'
 import { MethodologyTip } from './MethodologyTip'
 import { ConfidenceBadge, shouldSurfaceConfidence } from '../lib/confidence'
@@ -19,16 +19,31 @@ interface OrdinalRowProps {
   label: string
   ordinal: OrdinalResult
   shiftDiff?: number | null
+  citations?: EvidenceCitation[]
 }
 
-function OrdinalRow({ label, ordinal, shiftDiff }: OrdinalRowProps) {
+function EvidenceRow({ citations }: { citations: EvidenceCitation[] }) {
+  if (citations.length === 0) return null
   return (
-    <div className="flex items-center justify-between gap-2 text-sm">
-      <span className="text-text-secondary">{label}</span>
-      <div className="flex items-center gap-2">
-        {shiftDiff !== undefined && shiftDiff !== null && <ScoreShiftArrow diff={shiftDiff} />}
-        <OrdinalChip result={ordinal} size="sm" />
+    <div className="mt-1 flex flex-wrap gap-1.5">
+      {citations.slice(0, 2).map((c, i) => (
+        <CitationButton key={i} citation={c} compact />
+      ))}
+    </div>
+  )
+}
+
+function OrdinalRow({ label, ordinal, shiftDiff, citations = [] }: OrdinalRowProps) {
+  return (
+    <div className="text-sm">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-text-secondary">{label}</span>
+        <div className="flex items-center gap-2">
+          {shiftDiff !== undefined && shiftDiff !== null && <ScoreShiftArrow diff={shiftDiff} />}
+          <OrdinalChip result={ordinal} size="sm" />
+        </div>
       </div>
+      <EvidenceRow citations={citations} />
     </div>
   )
 }
@@ -57,7 +72,13 @@ function topConcerns(evasion: EvasionScore[]): Array<{ topic: string; count: num
     .slice(0, 3)
 }
 
-function EvasionGrid({ evasion }: { evasion: EvasionScore[] }) {
+function EvasionGrid({
+  evasion,
+  citations,
+}: {
+  evasion: EvasionScore[]
+  citations: EvidenceCitation[]
+}) {
   // Drop score=0 rows entirely (non-evasive answers are noise on this card).
   // Replace the bold 0-5 badge with a subtle "Evasive" pill that only appears
   // when the model rated the answer as actually evasive (score >= 3). The
@@ -73,6 +94,7 @@ function EvasionGrid({ evasion }: { evasion: EvasionScore[] }) {
       <div className="space-y-2">
         {visible.map((e, i) => {
           const isEvasive = e.score >= 3
+          const pairedCitations = citations.filter((c) => c.utterance_index === e.utterance_index)
           return (
             <div
               key={i}
@@ -99,6 +121,7 @@ function EvasionGrid({ evasion }: { evasion: EvasionScore[] }) {
               </div>
               <p className="line-clamp-2 font-medium text-text-primary">{e.analyst_question}</p>
               <p className="mt-0.5 text-text-muted">{e.reason}</p>
+              <EvidenceRow citations={pairedCitations} />
             </div>
           )
         })}
@@ -109,6 +132,12 @@ function EvasionGrid({ evasion }: { evasion: EvasionScore[] }) {
 
 export function SentimentPanel({ sentiment }: Props) {
   const concerns = topConcerns(sentiment.evasion_scores)
+  const presentationEvidence = sentiment.evidence_citations.filter((c) =>
+    c.section.toLowerCase().includes('presentation')
+  )
+  const qaEvidence = sentiment.evidence_citations.filter((c) =>
+    c.section.toLowerCase().includes('qa')
+  )
 
   return (
     <div className="maecas-card">
@@ -128,6 +157,7 @@ export function SentimentPanel({ sentiment }: Props) {
           <OrdinalRow
             label="Management confidence"
             ordinal={toneToOrdinal(sentiment.mgmt_confidence_presentation)}
+            citations={presentationEvidence}
             shiftDiff={
               sentiment.mgmt_confidence_presentation_baseline?.prior_quarter != null
                 ? sentiment.mgmt_confidence_presentation -
@@ -138,6 +168,7 @@ export function SentimentPanel({ sentiment }: Props) {
           <OrdinalRow
             label="Hedging frequency"
             ordinal={hedgingToOrdinal(sentiment.hedging_frequency)}
+            citations={presentationEvidence}
           />
         </div>
         <div className="space-y-3">
@@ -145,6 +176,7 @@ export function SentimentPanel({ sentiment }: Props) {
           <OrdinalRow
             label="Management confidence"
             ordinal={toneToOrdinal(sentiment.mgmt_confidence_qa)}
+            citations={qaEvidence}
             shiftDiff={
               sentiment.mgmt_confidence_qa_baseline?.prior_quarter != null
                 ? sentiment.mgmt_confidence_qa -
@@ -155,6 +187,7 @@ export function SentimentPanel({ sentiment }: Props) {
           <OrdinalRow
             label="Analyst skepticism"
             ordinal={skepticismToOrdinal(sentiment.analyst_skepticism)}
+            citations={qaEvidence}
           />
         </div>
       </div>
@@ -175,7 +208,7 @@ export function SentimentPanel({ sentiment }: Props) {
         </div>
       )}
 
-      <EvasionGrid evasion={sentiment.evasion_scores} />
+      <EvasionGrid evasion={sentiment.evasion_scores} citations={qaEvidence} />
 
       <div className="mt-4 flex flex-wrap items-center gap-2 text-xs text-text-muted">
         {shouldSurfaceConfidence(sentiment.confidence) && (
@@ -198,14 +231,6 @@ export function SentimentPanel({ sentiment }: Props) {
         )}
       </div>
 
-      {sentiment.evidence_citations.length > 0 && (
-        <div className="mt-3 space-y-1">
-          <p className="maecas-eyebrow">Evidence</p>
-          {sentiment.evidence_citations.slice(0, 4).map((c, i) => (
-            <CitationButton key={i} citation={c} compact />
-          ))}
-        </div>
-      )}
     </div>
   )
 }
