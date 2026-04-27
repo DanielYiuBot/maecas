@@ -157,7 +157,6 @@ export function SentimentPanel({ sentiment }: Props) {
           <OrdinalRow
             label="Management confidence"
             ordinal={toneToOrdinal(sentiment.mgmt_confidence_presentation)}
-            citations={presentationEvidence}
             shiftDiff={
               sentiment.mgmt_confidence_presentation_baseline?.prior_quarter != null
                 ? sentiment.mgmt_confidence_presentation -
@@ -168,7 +167,6 @@ export function SentimentPanel({ sentiment }: Props) {
           <OrdinalRow
             label="Hedging frequency"
             ordinal={hedgingToOrdinal(sentiment.hedging_frequency)}
-            citations={presentationEvidence}
           />
         </div>
         <div className="space-y-3">
@@ -176,7 +174,6 @@ export function SentimentPanel({ sentiment }: Props) {
           <OrdinalRow
             label="Management confidence"
             ordinal={toneToOrdinal(sentiment.mgmt_confidence_qa)}
-            citations={qaEvidence}
             shiftDiff={
               sentiment.mgmt_confidence_qa_baseline?.prior_quarter != null
                 ? sentiment.mgmt_confidence_qa -
@@ -187,7 +184,6 @@ export function SentimentPanel({ sentiment }: Props) {
           <OrdinalRow
             label="Analyst skepticism"
             ordinal={skepticismToOrdinal(sentiment.analyst_skepticism)}
-            citations={qaEvidence}
           />
         </div>
       </div>
@@ -210,9 +206,44 @@ export function SentimentPanel({ sentiment }: Props) {
 
       <EvasionGrid evasion={sentiment.evasion_scores} citations={qaEvidence} />
 
+      {sentiment.analyst_topic_map && sentiment.analyst_topic_map.length > 0 && (
+        <div className="mt-4 rounded border border-border bg-surface-card p-3">
+          <h4 className="mb-2 text-sm font-medium text-text-secondary">Analyst topic coverage</h4>
+          <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+            {sentiment.analyst_topic_map.slice(0, 6).map((row) => (
+              <div key={row.topic} className="rounded border border-border bg-surface-muted/60 p-2 text-xs">
+                <p className="font-medium capitalize text-text-primary">{row.topic}</p>
+                <p className="text-text-muted">
+                  {row.question_count} questions · skepticism {row.avg_skepticism.toFixed(1)} · evasion {row.avg_evasion.toFixed(1)}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {sentiment.speaker_tone && sentiment.speaker_tone.length > 0 && (
+        <div className="mt-4 rounded border border-border bg-surface-card p-3">
+          <h4 className="mb-2 text-sm font-medium text-text-secondary">Speaker tone</h4>
+          <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+            {sentiment.speaker_tone.map((s) => (
+              <div key={`${s.speaker_name}-${s.speaker_role}`} className="rounded border border-border bg-surface-muted/50 p-2 text-xs">
+                <p className="font-medium text-text-primary">{s.speaker_name} ({s.speaker_role})</p>
+                <p className="text-text-muted">Confidence {s.confidence} · Hedging {s.hedging} · {s.register}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="mt-4 flex flex-wrap items-center gap-2 text-xs text-text-muted">
         {shouldSurfaceConfidence(sentiment.confidence) && (
           <ConfidenceBadge value={sentiment.confidence} prefix="Run confidence" />
+        )}
+        {sentiment.sentiment_stability && (
+          <span>
+            QA coverage {(sentiment.sentiment_stability.coverage_ratio * 100).toFixed(0)}% · agreement {(sentiment.sentiment_stability.model_agreement_ratio * 100).toFixed(0)}%
+          </span>
         )}
         <span>{sentiment.confidence_rationale}</span>
         {sentiment.low_confidence_flag && (

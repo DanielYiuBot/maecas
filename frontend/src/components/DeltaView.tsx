@@ -43,6 +43,31 @@ function DriftBadge({
   )
 }
 
+function formatDateLabel(raw: string): string {
+  const d = new Date(raw)
+  if (Number.isNaN(d.getTime())) return raw.split('T')[0] || raw
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+function trajectoryStatusLabel(status: string): string {
+  const normalized = status.toLowerCase()
+  if (normalized === 'new') return 'new since this call'
+  if (normalized === 'repeated') return 'carried forward'
+  if (normalized === 'de_emphasized') return 'less emphasized now'
+  if (normalized === 'resolved') return 'resolved now'
+  return status.replace(/_/g, ' ')
+}
+
+function trajectoryStatusClass(status: string): string {
+  const normalized = status.toLowerCase()
+  if (normalized === 'new') return 'border-bull-100 bg-bull-50 text-bull-900'
+  if (normalized === 'repeated') return 'border-info-100 bg-info-100 text-info-900'
+  if (normalized === 'de_emphasized' || normalized === 'resolved') {
+    return 'border-bear-100 bg-bear-50 text-bear-900'
+  }
+  return 'border-border bg-surface-card text-text-secondary'
+}
+
 export function DeltaView({ delta }: Props) {
   if (!delta) return null
 
@@ -75,6 +100,7 @@ export function DeltaView({ delta }: Props) {
     })
 
   const drift = delta.language_drift
+  const trajectory = delta.topic_trajectory ?? []
 
   return (
     <div className="maecas-card">
@@ -86,6 +112,12 @@ export function DeltaView({ delta }: Props) {
       </div>
 
       <div className="mb-6">
+        {delta.comparison_window && (
+          <div className="mb-3 rounded border border-border bg-surface-card p-3 text-xs text-text-secondary">
+            Comparing {delta.comparison_window.current_event_date} against {delta.comparison_window.prior_event_dates.length} prior quarter(s):{' '}
+            {delta.comparison_window.prior_event_dates.join(', ')}
+          </div>
+        )}
         <h4 className="mb-2 text-sm font-medium text-text-secondary">Topic Mention Changes</h4>
         <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
           <div className="rounded border border-border bg-surface-card p-3">
@@ -240,6 +272,60 @@ export function DeltaView({ delta }: Props) {
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {delta.trend_deltas && delta.trend_deltas.length > 0 && (
+        <div className="mb-5 rounded border border-border bg-surface-card p-3">
+          <h4 className="mb-2 text-sm font-medium text-text-secondary">Multi-quarter trend deltas</h4>
+          <div className="space-y-2">
+            {delta.trend_deltas.slice(0, 8).map((t, i) => (
+              <div key={`${t.topic}-${i}`} className="rounded border border-border bg-surface-muted/50 p-2">
+                <p className="text-sm font-medium text-text-primary">{t.topic}</p>
+                <p className="text-xs text-text-secondary">{t.trend}</p>
+                <p className="text-xs text-text-muted">{t.rationale}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {trajectory.length > 0 && (
+        <div className="mb-5 rounded border border-border bg-surface-card p-3">
+          <h4 className="mb-1 text-sm font-medium text-text-secondary">Topic history vs prior quarters</h4>
+          <p className="mb-3 text-xs text-text-muted">
+            Each chip reads as: compared with that earlier call, how does the topic appear in the current call?
+          </p>
+          <div className="space-y-2">
+            {trajectory.slice(0, 10).map((row) => (
+              <div key={row.topic} className="rounded border border-border bg-surface-muted/50 p-2">
+                <p className="mb-1 text-sm font-medium text-text-primary">{row.topic}</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {row.points.map((point) => (
+                    <span
+                      key={`${row.topic}-${point.event_date}-${point.novelty_status}`}
+                      className={`rounded border px-2 py-0.5 text-[11px] ${trajectoryStatusClass(point.novelty_status)}`}
+                      title={`Sentiment delta ${point.sentiment_delta.toFixed(2)}`}
+                    >
+                      vs {formatDateLabel(point.event_date)}: {trajectoryStatusLabel(point.novelty_status)}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {delta.stability_checks && (
+        <div className="mb-3 rounded border border-border bg-surface-muted/60 p-3 text-xs text-text-secondary">
+          Coverage: {delta.stability_checks.citation_coverage_ratio.toFixed(2)}
+          {delta.stability_checks.disagreement_flags.length > 0 && (
+            <span> · Flags: {delta.stability_checks.disagreement_flags.slice(0, 2).join(' | ')}</span>
+          )}
+          {delta.stability_checks.low_confidence_reasons.length > 0 && (
+            <span> · Low-confidence: {delta.stability_checks.low_confidence_reasons.slice(0, 2).join(' | ')}</span>
+          )}
         </div>
       )}
 

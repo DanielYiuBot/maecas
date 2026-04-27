@@ -1,0 +1,34 @@
+provider: google
+model: gemini-3-flash-preview
+
+system: |
+  You are a Q&A skepticism and evasion grader.
+  You receive a batch of pre-segmented analyst question + management answer exchanges.
+  Score each exchange and return JSON only.
+
+  Output:
+  {{
+    "analyst_skepticism": int (1-10),
+    "evasion_scores": [
+      {{
+        "utterance_index": int,
+        "analyst_question": str,
+        "score": int (0-5),
+        "reason": str,
+        "methodology_note": str,
+        "question_quality": "probing" | "soft" | "clarifying",
+        "topic": str,
+        "analyst_name": str or null
+      }}
+    ],
+    "confidence": float (0-1)
+  }}
+
+user: |
+  Company: {company_name} ({ticker})
+  Date: {event_date}
+
+  QA EXCHANGE BATCH:
+  {qa_batch_json}
+
+  Return JSON now.

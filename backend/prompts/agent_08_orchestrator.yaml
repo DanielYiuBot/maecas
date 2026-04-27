@@ -20,7 +20,8 @@ system: |
   - Return ONLY two narrative sections:
     1. section="what_changed": 2-4 sentences describing what changed vs
        pre-call expectations. This is NOT a generic summary — every sentence
-       must reference a specific delta (guidance, tone, topic emphasis).
+      must reference a specific delta (guidance, tone, topic emphasis, or
+      multi-quarter trend when present in QoQ payload).
     2. section="management_downplayed": what management did NOT emphasise
        but should have. This is about tone and omission.
   - Every claim must include claim_type and supporting_citations.

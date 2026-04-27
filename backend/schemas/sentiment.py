@@ -38,6 +38,48 @@ class SentimentBaseline(BaseModel):
     interpretation: Literal["above_avg", "in_line", "below_avg"] = "in_line"
 
 
+class QAExchange(BaseModel):
+    question_utterance_index: int
+    answer_utterance_indexes: list[int]
+    analyst_question: str
+    management_answer: str
+    topic: str = ""
+    analyst_name: Optional[str] = None
+    follow_up: bool = False
+    citations: list[EvidenceCitation] = Field(default_factory=list)
+
+
+class AnalystTopicStat(BaseModel):
+    topic: str
+    question_count: int = 0
+    avg_skepticism: float = 0.0
+    avg_evasion: float = 0.0
+    answer_quality: Literal["strong", "mixed", "weak"] = "mixed"
+
+
+class ManagementAnswerQuality(BaseModel):
+    directness: int = Field(ge=1, le=10)
+    specificity: int = Field(ge=1, le=10)
+    numeric_support: int = Field(ge=1, le=10)
+    evasion: int = Field(ge=1, le=10)
+    topic: str = ""
+
+
+class SpeakerTone(BaseModel):
+    speaker_name: str
+    speaker_role: Literal["CEO", "CFO", "Other"]
+    confidence: int = Field(ge=1, le=10)
+    hedging: int = Field(ge=1, le=10)
+    register: str = ""
+
+
+class SentimentStability(BaseModel):
+    coverage_ratio: float = Field(ge=0.0, le=1.0)
+    citation_coverage_ratio: float = Field(ge=0.0, le=1.0)
+    model_agreement_ratio: float = Field(ge=0.0, le=1.0)
+    warnings: list[str] = Field(default_factory=list)
+
+
 class SentimentProfile(BaseModel):
     mgmt_confidence_presentation: int = Field(ge=1, le=10)
     mgmt_confidence_qa: int = Field(ge=1, le=10)
@@ -54,3 +96,8 @@ class SentimentProfile(BaseModel):
 
     mgmt_confidence_presentation_baseline: Optional[SentimentBaseline] = None
     mgmt_confidence_qa_baseline: Optional[SentimentBaseline] = None
+    qa_exchanges: list[QAExchange] = Field(default_factory=list)
+    analyst_topic_map: list[AnalystTopicStat] = Field(default_factory=list)
+    management_answer_quality: list[ManagementAnswerQuality] = Field(default_factory=list)
+    speaker_tone: list[SpeakerTone] = Field(default_factory=list)
+    sentiment_stability: Optional[SentimentStability] = None

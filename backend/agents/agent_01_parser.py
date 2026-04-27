@@ -5,6 +5,7 @@ Pure Python agent that parses the raw XML into structured TranscriptData.
 
 import logging
 import time
+from datetime import datetime
 
 from backend.services.xml_parser import parse_transcript
 from backend.graph.state import GraphState
@@ -16,7 +17,11 @@ async def run(state: GraphState) -> dict:
     """Parse current (and optional prior) transcript XML."""
     t0 = time.perf_counter()
     job_id = state.get("job_id", "unknown")
-    has_prior = state.get("raw_xml_prior") is not None
+    priors = list(state.get("raw_xml_priors") or [])
+    legacy_prior = state.get("raw_xml_prior")
+    if legacy_prior and not priors:
+        priors = [legacy_prior]
+    has_prior = len(priors) > 0
     xml_len = len(state.get("raw_xml_current") or "")
     logger.info(
         "agent_01_parser START | job_id=%s | xml_len=%d | has_prior=%s",
@@ -43,14 +48,33 @@ async def run(state: GraphState) -> dict:
         "pipeline_warnings": [],
     }
 
-    raw_prior = state.get("raw_xml_prior")
-    if raw_prior:
+    parsed_priors = []
+    for idx, raw_prior in enumerate(priors):
+        if not raw_prior:
+            continue
         try:
             prior = parse_transcript(raw_prior, is_prior_quarter=True)
-            result["prior_transcript"] = prior
+            parsed_priors.append(prior)
         except Exception as e:
-            logger.warning("agent_01_parser prior parse failed | job_id=%s | error=%s", job_id, e)
-            new_warnings.append(f"Parser error (prior): {e}")
+            logger.warning(
+                "agent_01_parser prior parse failed | job_id=%s | prior_idx=%d | error=%s",
+                job_id,
+                idx,
+                e,
+            )
+            new_warnings.append(f"Parser error (prior[{idx}]): {e}")
+
+    def _safe_event_date_iso(td) -> datetime:
+        raw = td.metadata.event_date if td and td.metadata else ""
+        try:
+            return datetime.fromisoformat((raw or "").replace("Z", "+00:00"))
+        except Exception:
+            return datetime.min
+
+    parsed_priors.sort(key=_safe_event_date_iso)
+    result["prior_transcripts"] = parsed_priors
+    if parsed_priors:
+        result["prior_transcript"] = parsed_priors[-1]
 
     result["pipeline_warnings"] = new_warnings
 
@@ -59,7 +83,11 @@ async def run(state: GraphState) -> dict:
 
     elapsed = time.perf_counter() - t0
     logger.info(
-        "agent_01_parser DONE | job_id=%s | duration=%.2fs | utterances=%d | has_prior=%s | new_warnings=%d",
-        job_id, elapsed, len(transcript.utterances), "prior_transcript" in result, len(new_warnings),
+        "agent_01_parser DONE | job_id=%s | duration=%.2fs | utterances=%d | priors=%d | new_warnings=%d",
+        job_id,
+        elapsed,
+        len(transcript.utterances),
+        len(parsed_priors),
+        len(new_warnings),
     )
     return result

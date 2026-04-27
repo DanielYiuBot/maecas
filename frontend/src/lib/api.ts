@@ -5,16 +5,16 @@ const BASE = '/api'
 
 export async function startAnalysis(
   currentFile: File,
-  priorFile?: File
+  priorFiles: File[] = []
 ): Promise<{ job_id: string; status: string }> {
   logger.info('API', `POST /analysis/start | file=${currentFile.name} (${(currentFile.size / 1024).toFixed(1)} KB)` +
-    (priorFile ? ` | prior=${priorFile.name}` : ''))
+    (priorFiles.length ? ` | priors=${priorFiles.map((f) => f.name).join(',')}` : ''))
   const t0 = performance.now()
 
   const form = new FormData()
   form.append('current_file', currentFile)
-  if (priorFile) {
-    form.append('prior_file', priorFile)
+  for (const priorFile of priorFiles.slice(0, 3)) {
+    form.append('prior_files', priorFile)
   }
   const res = await fetch(`${BASE}/analysis/start`, { method: 'POST', body: form })
   const elapsed = (performance.now() - t0).toFixed(0)

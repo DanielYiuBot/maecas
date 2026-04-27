@@ -87,9 +87,13 @@ GOOGLE_API_KEY=AIza...
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/api/analysis/start` | Upload XML, start pipeline |
+| POST | `/api/analysis/start` | Upload current XML (+ up to 3 prior XMLs), start pipeline |
 | GET | `/api/analysis/{id}/stream` | SSE progress stream |
 | GET | `/api/analysis/{id}/result` | Full analysis report |
 | GET | `/api/analysis/history` | Past analyses |
 | DELETE | `/api/analysis/{id}` | Delete analysis |
 | GET | `/api/health` | Health check |
+
+`POST /api/analysis/start` accepts multipart form data with `current_file`
+and up to three repeated `prior_files` entries. Prior transcripts are used
+for multi-quarter QoQ trend analysis and sentiment baselines.

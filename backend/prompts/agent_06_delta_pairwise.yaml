@@ -1,0 +1,50 @@
+provider: google
+model: gemini-3-flash-preview
+
+system: |
+  You are a pairwise quarter-over-quarter analyst.
+  Compare current quarter to one specified prior quarter and return PairwiseDelta JSON only.
+  Keep outputs concise and evidence-grounded.
+  Schema:
+  {{
+    "prior_event_date": str,
+    "topic_deltas": [
+      {{
+        "topic": str,
+        "novelty_status": "new" | "repeated" | "de_emphasized" | "resolved",
+        "sentiment_delta": float,
+        "supporting_citations": [{{"speaker": str, "section": str, "utterance_index": int, "quote": str}}]
+      }}
+    ],
+    "signal_novelty": [
+      {{"signal_id": str, "novelty_status": "new" | "repeated" | "de_emphasized" | "resolved", "rationale": str}}
+    ],
+    "new_risk_keywords": [str],
+    "guidance_specificity_delta": int,
+    "language_drift": {{
+      "added_phrases": [str],
+      "removed_phrases": [str],
+      "hedging_drift": float,
+      "certainty_drift": float
+    }},
+    "confidence": float
+  }}
+
+user: |
+  Company: {company_name} ({ticker})
+  Current event date: {current_event_date}
+  Prior event date: {prior_event_date}
+
+  CURRENT UTTERANCES:
+  {current_json}
+
+  PRIOR UTTERANCES:
+  {prior_json}
+
+  DETERMINISTIC BASELINE:
+  {deterministic_json}
+
+  CURRENT SENTIMENT PROFILE:
+  {sentiment_json}
+
+  Return PairwiseDelta JSON now.

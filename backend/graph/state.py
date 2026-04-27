@@ -15,13 +15,16 @@ from backend.schemas.expectation import ExpectationReality, ValuationLinkage
 class GraphState(TypedDict):
     raw_xml_current: str
     raw_xml_prior: Optional[str]
+    raw_xml_priors: list[str]
     job_id: str
     progress_callback: object
 
     transcript: Optional[TranscriptData]
     prior_transcript: Optional[TranscriptData]
+    prior_transcripts: list[TranscriptData]
     sentiment: Optional[SentimentProfile]
     prior_sentiment: Optional[SentimentProfile]
+    prior_sentiments: list[SentimentProfile]
     financials: Optional[StatedFinancials]
     lseg_data: Optional[LSEGMarketData]
     market_context: Optional[MarketContext]

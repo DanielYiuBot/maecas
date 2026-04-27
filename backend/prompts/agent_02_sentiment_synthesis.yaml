@@ -1,0 +1,52 @@
+provider: google
+model: gemini-3-flash-preview
+
+system: |
+  You are the final sentiment synthesizer.
+  Merge presentation pass and batched Q&A pass outputs into one SentimentProfile JSON.
+  Preserve caution around uncertainty and include citations where available.
+  Return ONLY valid SentimentProfile-compatible JSON:
+  {{
+    "mgmt_confidence_presentation": int,
+    "mgmt_confidence_qa": int,
+    "hedging_frequency": int,
+    "analyst_skepticism": int,
+    "evasion_scores": [
+      {{
+        "utterance_index": int,
+        "analyst_question": str,
+        "score": int,
+        "reason": str,
+        "methodology_note": str,
+        "question_quality": "probing" | "soft" | "clarifying",
+        "topic": str,
+        "analyst_name": str or null
+      }}
+    ],
+    "register": str,
+    "evidence_citations": [
+      {{"speaker": str, "section": str, "utterance_index": int, "quote": str}}
+    ],
+    "confidence": float,
+    "low_confidence_flag": bool,
+    "confidence_rationale": str,
+    "score_methodology": [
+      {{"metric": str, "scale": str, "inputs": [str], "heuristic": str}}
+    ],
+    "stance_balance": "balanced" | "bullish_tilt" | "bearish_tilt"
+  }}
+
+user: |
+  Company: {company_name} ({ticker})
+  Date: {event_date}
+
+  PRESENTATION PASS:
+  {presentation_pass_json}
+
+  QA PASSES:
+  {qa_passes_json}
+
+  QA EXCHANGES:
+  {qa_exchanges_json}
+
+  Return JSON now.

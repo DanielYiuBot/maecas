@@ -72,6 +72,53 @@ export interface SentimentProfile {
   stance_balance: 'balanced' | 'bullish_tilt' | 'bearish_tilt'
   mgmt_confidence_presentation_baseline: SentimentBaseline | null
   mgmt_confidence_qa_baseline: SentimentBaseline | null
+  qa_exchanges?: QAExchange[]
+  analyst_topic_map?: AnalystTopicStat[]
+  management_answer_quality?: ManagementAnswerQuality[]
+  speaker_tone?: SpeakerTone[]
+  sentiment_stability?: SentimentStability | null
+}
+
+export interface QAExchange {
+  question_utterance_index: number
+  answer_utterance_indexes: number[]
+  analyst_question: string
+  management_answer: string
+  topic: string
+  analyst_name: string | null
+  follow_up: boolean
+  citations: EvidenceCitation[]
+}
+
+export interface AnalystTopicStat {
+  topic: string
+  question_count: number
+  avg_skepticism: number
+  avg_evasion: number
+  answer_quality: 'strong' | 'mixed' | 'weak'
+}
+
+export interface ManagementAnswerQuality {
+  directness: number
+  specificity: number
+  numeric_support: number
+  evasion: number
+  topic: string
+}
+
+export interface SpeakerTone {
+  speaker_name: string
+  speaker_role: 'CEO' | 'CFO' | 'Other'
+  confidence: number
+  hedging: number
+  register: string
+}
+
+export interface SentimentStability {
+  coverage_ratio: number
+  citation_coverage_ratio: number
+  model_agreement_ratio: number
+  warnings: string[]
 }
 
 export interface StatedFigure {
@@ -237,6 +284,50 @@ export interface QoQDelta {
   guidance_specificity_delta: number
   methodology: ScoreMethodology
   language_drift: LanguageDrift | null
+  comparison_window?: ComparisonWindow | null
+  pairwise_comparisons?: PairwiseDelta[]
+  trend_deltas?: TrendDelta[]
+  topic_trajectory?: TopicTrajectory[]
+  stability_checks?: StabilityChecks | null
+}
+
+export interface ComparisonWindow {
+  current_event_date: string
+  prior_event_dates: string[]
+}
+
+export interface PairwiseDelta {
+  prior_event_date: string
+  topic_deltas: TopicDelta[]
+  signal_novelty: SignalNovelty[]
+  new_risk_keywords: string[]
+  guidance_specificity_delta: number
+  language_drift: LanguageDrift | null
+  confidence: number
+}
+
+export interface TrendDelta {
+  topic: string
+  trend: string
+  rationale: string
+  supporting_citations: EvidenceCitation[]
+}
+
+export interface TopicTrajectoryPoint {
+  event_date: string
+  novelty_status: string
+  sentiment_delta: number
+}
+
+export interface TopicTrajectory {
+  topic: string
+  points: TopicTrajectoryPoint[]
+}
+
+export interface StabilityChecks {
+  citation_coverage_ratio: number
+  disagreement_flags: string[]
+  low_confidence_reasons: string[]
 }
 
 export type TimeHorizon = '0-3m' | '3-6m' | '6-12m' | '12m+'

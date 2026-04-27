@@ -388,6 +388,11 @@ async def run(state: GraphState) -> dict:
         w = "Low confidence: Sentiment analysis"
         warnings.append(w)
         new_state_warnings.append(w)
+    if sentiment and sentiment.sentiment_stability and sentiment.sentiment_stability.warnings:
+        for sw in sentiment.sentiment_stability.warnings:
+            msg = f"Sentiment stability: {sw}"
+            warnings.append(msg)
+            new_state_warnings.append(msg)
     if financials and financials.low_confidence_flag:
         w = "Low confidence: Financial extraction"
         warnings.append(w)
@@ -402,6 +407,11 @@ async def run(state: GraphState) -> dict:
             market_context.lseg_available,
             market_context.confidence,
         )
+    if delta and delta.stability_checks:
+        for dw in delta.stability_checks.low_confidence_reasons[:3]:
+            msg = f"QoQ stability: {dw}"
+            warnings.append(msg)
+            new_state_warnings.append(msg)
 
     try:
         system, user, provider, model = _agent.load_prompt(

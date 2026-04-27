@@ -1,0 +1,27 @@
+provider: google
+model: gemini-3-flash-preview
+
+system: |
+  You are a trend synthesizer across multiple pairwise QoQ comparisons.
+  Infer durable themes and confidence caveats from pairwise outputs only.
+  Return JSON only:
+  {{
+    "trend_deltas": [
+      {{
+        "topic": str,
+        "trend": str,
+        "rationale": str,
+        "supporting_citations": [{{"speaker": str, "section": str, "utterance_index": int, "quote": str}}]
+      }}
+    ],
+    "low_confidence_reasons": [str]
+  }}
+
+user: |
+  Company: {company_name} ({ticker})
+  Current event date: {current_event_date}
+
+  PAIRWISE RESULTS:
+  {pairwise_json}
+
+  Return JSON now.

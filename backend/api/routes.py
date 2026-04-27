@@ -30,19 +30,21 @@ def _get_graph():
     return _compiled_graph
 
 
-async def _run_pipeline(job_id: str, current_xml: str, prior_xml: str | None):
+async def _run_pipeline(job_id: str, current_xml: str, prior_xmls: list[str] | None):
     """Execute the full LangGraph pipeline as a background task."""
     import time as _time
     t0 = _time.perf_counter()
     logger.info(
-        "Pipeline START | job_id=%s | xml_size=%d | has_prior=%s",
-        job_id, len(current_xml), prior_xml is not None,
+        "Pipeline START | job_id=%s | xml_size=%d | prior_count=%d",
+        job_id, len(current_xml), len(prior_xmls or []),
     )
 
     progress = make_progress_callback(job_id)
     sse_manager.create_queue(job_id)
 
     await progress(stage="validation", agent="pipeline", status="running", progress_pct=0, message="Starting pipeline...")
+
+    prior_xmls = prior_xmls or []
 
     async with async_session() as session:
         job = await session.get(AnalysisJob, job_id)
@@ -55,13 +57,16 @@ async def _run_pipeline(job_id: str, current_xml: str, prior_xml: str | None):
         graph = _get_graph()
         initial_state = {
             "raw_xml_current": current_xml,
-            "raw_xml_prior": prior_xml,
+            "raw_xml_prior": prior_xmls[-1] if prior_xmls else None,
+            "raw_xml_priors": prior_xmls,
             "job_id": job_id,
             "progress_callback": progress,
             "transcript": None,
             "prior_transcript": None,
+            "prior_transcripts": [],
             "sentiment": None,
             "prior_sentiment": None,
+            "prior_sentiments": [],
             "financials": None,
             "lseg_data": None,
             "market_context": None,
@@ -126,27 +131,44 @@ async def start_analysis(
     background_tasks: BackgroundTasks,
     current_file: UploadFile = File(...),
     prior_file: UploadFile | None = File(None),
+    prior_files: list[UploadFile] = File(default_factory=list),
 ):
     if not current_file.filename or not current_file.filename.endswith(".xml"):
         raise HTTPException(status_code=400, detail="Current file must be an .xml file")
 
     current_xml = (await current_file.read()).decode("utf-8")
 
-    prior_xml = None
-    if prior_file:
-        if not prior_file.filename or not prior_file.filename.endswith(".xml"):
-            raise HTTPException(status_code=400, detail="Prior file must be an .xml file")
-        prior_xml = (await prior_file.read()).decode("utf-8")
+    parsed_prior_files: list[UploadFile] = []
+    parsed_prior_files.extend([f for f in prior_files if f])
+    if prior_file and not parsed_prior_files:
+        # Backward compatibility with old clients.
+        parsed_prior_files.append(prior_file)
+
+    if len(parsed_prior_files) > 3:
+        raise HTTPException(status_code=400, detail="At most 3 prior files are supported")
+
+    prior_xmls: list[str] = []
+    for f in parsed_prior_files:
+        if not f.filename or not f.filename.endswith(".xml"):
+            raise HTTPException(status_code=400, detail="All prior files must be .xml files")
+        prior_xmls.append((await f.read()).decode("utf-8"))
 
     size_mb = len(current_xml) / (1024 * 1024)
     if size_mb > settings.max_upload_size_mb:
         raise HTTPException(status_code=400, detail=f"File exceeds {settings.max_upload_size_mb}MB limit")
+    for idx, px in enumerate(prior_xmls):
+        p_size_mb = len(px) / (1024 * 1024)
+        if p_size_mb > settings.max_upload_size_mb:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Prior file #{idx + 1} exceeds {settings.max_upload_size_mb}MB limit",
+            )
 
     job_id = str(uuid.uuid4())
     logger.info(
-        "start_analysis | job_id=%s | file=%s (%.1f KB) | prior=%s",
+        "start_analysis | job_id=%s | file=%s (%.1f KB) | prior_count=%d",
         job_id, current_file.filename, len(current_xml) / 1024,
-        prior_file.filename if prior_file else None,
+        len(prior_xmls),
     )
 
     async with async_session() as session:
@@ -154,7 +176,7 @@ async def start_analysis(
         session.add(job)
         await session.commit()
 
-    background_tasks.add_task(_run_pipeline, job_id, current_xml, prior_xml)
+    background_tasks.add_task(_run_pipeline, job_id, current_xml, prior_xmls)
 
     return {"job_id": job_id, "status": "queued"}
 

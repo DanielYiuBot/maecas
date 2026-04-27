@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState } from 'react'
 import { Upload as UploadIcon, FileText, X, AlertCircle } from 'lucide-react'
 import { startAnalysis } from '../lib/api'
 
@@ -8,7 +8,7 @@ interface Props {
 
 export function Upload({ onJobStarted }: Props) {
   const [currentFile, setCurrentFile] = useState<File | null>(null)
-  const [priorFile, setPriorFile] = useState<File | null>(null)
+  const [priorFiles, setPriorFiles] = useState<File[]>([])
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [dragOver, setDragOver] = useState(false)
@@ -22,24 +22,41 @@ export function Upload({ onJobStarted }: Props) {
     return true
   }
 
-  const handleDrop = useCallback((e: React.DragEvent) => {
+  const appendPriorFiles = (files: File[]) => {
+    const valid = files.filter((f) => validateFile(f))
+    setPriorFiles((prev) => {
+      const seen = new Set(prev.map((f) => `${f.name}-${f.size}`))
+      const next = [...prev]
+      for (const f of valid) {
+        const key = `${f.name}-${f.size}`
+        if (!seen.has(key)) {
+          next.push(f)
+          seen.add(key)
+        }
+      }
+      if (next.length > 3) setError('Only the first 3 prior quarter transcripts will be used')
+      return next.slice(0, 3)
+    })
+  }
+
+  const handleDrop = (e: React.DragEvent) => {
     e.preventDefault()
     setDragOver(false)
     const files = Array.from(e.dataTransfer.files)
     if (files.length > 0 && validateFile(files[0])) {
       setCurrentFile(files[0])
     }
-    if (files.length > 1 && validateFile(files[1])) {
-      setPriorFile(files[1])
+    if (files.length > 1) {
+      appendPriorFiles(files.slice(1))
     }
-  }, [])
+  }
 
   const handleSubmit = async () => {
     if (!currentFile) return
     setSubmitting(true)
     setError(null)
     try {
-      const result = await startAnalysis(currentFile, priorFile || undefined)
+      const result = await startAnalysis(currentFile, priorFiles)
       onJobStarted(result.job_id)
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Upload failed')
@@ -98,31 +115,41 @@ export function Upload({ onJobStarted }: Props) {
       )}
 
       <div className="mt-6 text-center">
-        <p className="mb-2 text-sm text-text-secondary">Optional: Prior quarter transcript for QoQ comparison</p>
+        <p className="mb-2 text-sm text-text-secondary">Optional: Up to 3 prior quarter transcripts for QoQ trends</p>
         <input
           type="file"
           accept=".xml"
+          multiple
           className="hidden"
           id="prior-file"
           onChange={(e) => {
-            const f = e.target.files?.[0]
-            if (f && validateFile(f)) setPriorFile(f)
+            appendPriorFiles(Array.from(e.target.files ?? []))
+            e.currentTarget.value = ''
           }}
         />
         <label
           htmlFor="prior-file"
           className="inline-block cursor-pointer rounded-lg border border-border-strong bg-surface-card px-4 py-1.5 text-sm text-text-secondary transition hover:bg-surface-muted"
         >
-          Select Prior Quarter XML
+          Add Prior Quarter XML
         </label>
-        {priorFile && (
+        {priorFiles.length > 0 && (
           <div className="mt-2 flex justify-center">
-            <div className="maecas-card flex w-full max-w-xl items-center gap-3 p-3 text-left">
-              <FileText className="h-5 w-5 text-text-muted" />
-              <span className="flex-1 text-sm">{priorFile.name}</span>
-              <button onClick={() => setPriorFile(null)} className="text-text-muted transition hover:text-text-primary">
-                <X className="h-4 w-4" />
-              </button>
+            <div className="maecas-card w-full max-w-xl p-3 text-left">
+              <div className="space-y-2">
+                {priorFiles.map((pf, idx) => (
+                  <div key={`${pf.name}-${idx}`} className="flex items-center gap-3">
+                    <FileText className="h-5 w-5 text-text-muted" />
+                    <span className="flex-1 text-sm">{pf.name}</span>
+                    <button
+                      onClick={() => setPriorFiles((prev) => prev.filter((_, i) => i !== idx))}
+                      className="text-text-muted transition hover:text-text-primary"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         )}
