@@ -58,7 +58,7 @@ class ComputedMetric(BaseModel):
     value: Optional[float]
     unit: str
     formula: str
-    inputs: dict[str, Optional[float]]
+    inputs: dict[str, Optional[float | str]]
 
 
 class LSEGMarketData(BaseModel):

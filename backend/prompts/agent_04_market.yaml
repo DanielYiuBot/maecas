@@ -47,7 +47,7 @@ system: |
         "value": float or null,
         "unit": str,
         "formula": str,
-        "inputs": {{}}
+        "inputs": {{"input_name": float or string or null}}
       }}
     ],
     "balance_risks": [str],

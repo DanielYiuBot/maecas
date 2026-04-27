@@ -2,6 +2,7 @@ import { AlertTriangle, CheckCircle2, Clock, TrendingDown, TrendingUp } from 'lu
 import type { CoreThesis, Signal, TradingSignals } from '../types/api'
 import { useDedup } from '../lib/dedup'
 import { MethodologyTip } from './MethodologyTip'
+import { ExplainableBadge } from './ExplainableBadge'
 
 interface Props {
   signals: TradingSignals
@@ -72,16 +73,25 @@ export function CoreThesisHeader({ signals }: Props) {
           </h2>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <span className={`rounded-full px-4 py-1.5 text-sm font-semibold ${DECISION_STYLES[ct.decision]}`}>
+          <ExplainableBadge
+            className={`rounded-full px-4 py-1.5 text-sm font-semibold ${DECISION_STYLES[ct.decision]}`}
+            explanation="LLM decision label from the final signal stack. It combines bull/bear signals, market expectation gaps, guidance quality, and falsification risks."
+          >
             {ct.decision}
-          </span>
-          <span className={`rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wide ${CONVICTION_STYLES[ct.conviction]}`}>
+          </ExplainableBadge>
+          <ExplainableBadge
+            className={`rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wide ${CONVICTION_STYLES[ct.conviction]}`}
+            explanation="LLM conviction bucket. High means the primary driver is clear, evidence is well-cited, and the key risk is explicit rather than hidden."
+          >
             {ct.conviction} conviction
-          </span>
-          <span className="inline-flex items-center gap-1 rounded-full border border-border bg-surface-muted px-3 py-1 text-xs font-medium text-text-secondary">
+          </ExplainableBadge>
+          <ExplainableBadge
+            className="inline-flex items-center gap-1 rounded-full border-border bg-surface-muted px-3 py-1 text-xs text-text-secondary"
+            explanation="Investment horizon inferred by the LLM from catalyst timing and when the thesis should be testable."
+          >
             <Clock className="h-3 w-3" />
             {ct.time_horizon}
-          </span>
+          </ExplainableBadge>
           <MethodologyTip width="lg">
             Core thesis is assembled after signal ranking. It uses the primary driver/risk IDs from the Trading Signals payload and the falsifiers emitted with the thesis.
           </MethodologyTip>

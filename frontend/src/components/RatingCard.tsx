@@ -1,12 +1,12 @@
 import type { AnalysisReport, EvasionScore, GuidanceRange, Signal } from '../types/api'
 import {
-  OrdinalChip,
   ScoreShiftArrow,
   densityToOrdinal,
   hedgingToOrdinal,
   toneToOrdinal,
   type OrdinalResult,
 } from '../lib/ordinal'
+import { ExplainableBadge } from './ExplainableBadge'
 
 interface Props {
   report: AnalysisReport
@@ -208,7 +208,12 @@ export function RatingCard({ report }: Props) {
               </div>
               <div className="flex items-center gap-2">
                 {row.shiftDiff !== null && <ScoreShiftArrow diff={row.shiftDiff} />}
-                <OrdinalChip result={row.ordinal} size="sm" />
+                <ExplainableBadge
+                  className="border-border bg-surface-card text-text-secondary"
+                  explanation={`${row.ordinal.explanation}. ${row.hint}. This is an LLM/deterministic bucket, not a precise numeric rating shown to the user.`}
+                >
+                  {row.ordinal.label}
+                </ExplainableBadge>
               </div>
             </div>
             <p className="text-xs text-text-secondary">{row.detail}</p>

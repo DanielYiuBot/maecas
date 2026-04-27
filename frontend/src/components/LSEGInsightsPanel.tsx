@@ -405,13 +405,6 @@ export function LSEGInsightsPanel({ lseg_data, market, metadata }: Props) {
         </div>
 
         <div className="space-y-6">
-          {market.analyst_rec_summary && (
-            <div className="rounded-lg border border-info-100 bg-info-100/40 p-4">
-              <h4 className="mb-1 text-sm font-medium text-info-900">Analyst view (LSEG rec fields)</h4>
-              <p className="text-sm text-info-900">{market.analyst_rec_summary}</p>
-            </div>
-          )}
-
           {market.beat_miss_flags.length > 0 && (
             <div>
               <h4 className="mb-2 text-sm font-medium text-text-secondary">

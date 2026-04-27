@@ -201,7 +201,7 @@ export interface ComputedMetric {
   value: number | null
   unit: string
   formula: string
-  inputs: Record<string, number | null>
+  inputs: Record<string, number | string | null>
 }
 
 export interface LSEGMarketData {

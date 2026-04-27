@@ -5,6 +5,7 @@ import { CitationButton } from './CitationButton'
 import { ConfidenceBadge, shouldSurfaceConfidence } from '../lib/confidence'
 import { useDedup } from '../lib/dedup'
 import { MethodologyTip } from './MethodologyTip'
+import { ExplainableBadge } from './ExplainableBadge'
 
 interface Props {
   signals: TradingSignals
@@ -25,30 +26,71 @@ const PNL_LINKAGE_LABELS: Record<Signal['pnl_linkage'], string> = {
   mix: 'Mix',
 }
 
+const CLAIM_EXPLANATIONS: Record<Signal['claim_type'], string> = {
+  fact: 'Grounding label: directly stated or numerically supported in the transcript.',
+  inference: 'Grounding label: LLM reasoning based on cited evidence, but not explicitly stated word-for-word.',
+  speculation: 'Grounding label: forward-looking interpretation with weaker direct support. Treat as lower certainty.',
+}
+
+const NOVELTY_EXPLANATIONS: Record<Signal['novelty_status'], string> = {
+  new: 'QoQ label: this signal is newly prominent versus the prior transcript window.',
+  repeated: 'QoQ label: this signal appeared before and remains relevant in the current call.',
+  de_emphasized: 'QoQ label: this topic was less emphasized in the current call than in prior calls.',
+  resolved: 'QoQ label: management indicated the prior issue is now largely closed or less material.',
+}
+
+const PRICED_EXPLANATIONS: Record<PricedInAssessment, string> = {
+  priced_in: 'LLM market-read label: evidence suggests consensus or price action already reflects this signal.',
+  partially_priced: 'LLM market-read label: the market likely recognizes the theme, but not its full magnitude or timing.',
+  not_priced: 'LLM market-read label: the signal appears under-modeled relative to consensus/market context.',
+  unknown: 'Market-read label: not enough LSEG or expectation context to judge whether the signal is priced in.',
+}
+
+const HORIZON_EXPLANATIONS: Record<Signal['time_horizon'], string> = {
+  '0-3m': 'Expected time window for this signal to matter or be tested: near-term, within roughly one quarter.',
+  '3-6m': 'Expected time window for this signal to matter or be tested: one to two quarters.',
+  '6-12m': 'Expected time window for this signal to matter or be tested: medium-term, usually tied to guidance or catalysts.',
+  '12m+': 'Expected time window for this signal to matter or be tested: long-term or structural thesis.',
+}
+
+const PNL_EXPLANATIONS: Record<Signal['pnl_linkage'], string> = {
+  revenue: 'P&L linkage: this signal mainly affects sales or bookings.',
+  margin: 'P&L linkage: this signal mainly affects gross margin, operating margin, or cost leverage.',
+  multiple: 'P&L linkage: this signal mainly affects valuation multiple or investor narrative.',
+  capex: 'P&L linkage: this signal mainly affects investment intensity or capital needs.',
+  mix: 'P&L linkage: this signal affects several financial lines rather than one clean driver.',
+}
+
 function PricedInChip({ value }: { value: PricedInAssessment }) {
   const meta = PRICED_IN_STYLES[value]
   return (
-    <span className={`rounded border px-2 py-0.5 text-[11px] font-medium ${meta.className}`}>
+    <ExplainableBadge className={meta.className} explanation={PRICED_EXPLANATIONS[value]}>
       {meta.label}
-    </span>
+    </ExplainableBadge>
   )
 }
 
 function HorizonChip({ value }: { value: Signal['time_horizon'] }) {
   return (
-    <span className="inline-flex items-center gap-0.5 rounded bg-ink-100 px-2 py-0.5 text-[11px] text-text-secondary">
+    <ExplainableBadge
+      className="inline-flex items-center gap-0.5 border-ink-200 bg-ink-100 text-text-secondary"
+      explanation={HORIZON_EXPLANATIONS[value]}
+    >
       <Clock className="h-3 w-3" />
       {value}
-    </span>
+    </ExplainableBadge>
   )
 }
 
 function PnlChip({ value }: { value: Signal['pnl_linkage'] }) {
   return (
-    <span className="inline-flex items-center gap-0.5 rounded bg-accent-50 px-2 py-0.5 text-[11px] text-accent-700">
+    <ExplainableBadge
+      className="inline-flex items-center gap-0.5 border-accent-100 bg-accent-50 text-accent-700"
+      explanation={PNL_EXPLANATIONS[value]}
+    >
       <Coins className="h-3 w-3" />
       {PNL_LINKAGE_LABELS[value]}
-    </span>
+    </ExplainableBadge>
   )
 }
 
@@ -77,14 +119,21 @@ function SignalItem({ signal, type }: { signal: Signal; type: 'bull' | 'bear' })
             </p>
           )}
           <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs">
-            <span className="rounded bg-ink-100 px-2 py-0.5 text-text-secondary">{signal.claim_type}</span>
-            <span className="rounded bg-accent-50 px-2 py-0.5 text-accent-700">{signal.novelty_status}</span>
+            <ExplainableBadge
+              className="border-ink-200 bg-ink-100 text-text-secondary"
+              explanation={CLAIM_EXPLANATIONS[signal.claim_type]}
+            >
+              {signal.claim_type}
+            </ExplainableBadge>
+            <ExplainableBadge
+              className="border-accent-100 bg-accent-50 text-accent-700"
+              explanation={NOVELTY_EXPLANATIONS[signal.novelty_status]}
+            >
+              {signal.novelty_status}
+            </ExplainableBadge>
             <PricedInChip value={signal.priced_in_assessment} />
             <HorizonChip value={signal.time_horizon} />
             <PnlChip value={signal.pnl_linkage} />
-            {signal.numeric_anchor && (
-              <span className="rounded bg-bull-50 px-2 py-0.5 font-mono text-bull-700">{signal.numeric_anchor}</span>
-            )}
           </div>
           {shouldSurfaceConfidence(signal.confidence) && (
             <div className="mt-1.5 flex items-center gap-2">
@@ -103,6 +152,11 @@ function SignalItem({ signal, type }: { signal: Signal; type: 'bull' | 'bear' })
       {expanded && (
         <div className="mt-3 space-y-2 pl-6">
           <p className="text-xs text-text-secondary">Evidence note: {signal.confidence_rationale}</p>
+          {signal.numeric_anchor && (
+            <p className="text-xs text-text-secondary">
+              Numeric anchor: <span className="font-mono">{signal.numeric_anchor}</span>
+            </p>
+          )}
           {signal.risk_tags.length > 0 && (
             <div className="flex flex-wrap gap-1">
               {signal.risk_tags.map((t) => (

@@ -5,6 +5,7 @@ import { CitationButton } from './CitationButton'
 import { MethodologyTip } from './MethodologyTip'
 import { ConfidenceBadge, bucketConfidence, shouldSurfaceConfidence } from '../lib/confidence'
 import { OrdinalChip, surpriseGapToOrdinal } from '../lib/ordinal'
+import { ExplainableBadge } from './ExplainableBadge'
 
 interface Props {
   guidance: GuidanceCatalysts
@@ -18,13 +19,13 @@ const IMPACT_PILL: Record<ImpactMagnitude, string> = {
 
 function ImpactPill({ value }: { value: ImpactMagnitude }) {
   return (
-    <span
-      className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] font-medium ${IMPACT_PILL[value]}`}
-      title="Qualitative impact magnitude on the thesis if the catalyst materialises."
+    <ExplainableBadge
+      className={`inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] ${IMPACT_PILL[value]}`}
+      explanation="LLM impact bucket: qualitative estimate of how much this catalyst would matter to the thesis if it materializes."
     >
       <span className="uppercase tracking-wide opacity-70">Impact</span>
       <span className="capitalize">{value}</span>
-    </span>
+    </ExplainableBadge>
   )
 }
 
@@ -35,13 +36,13 @@ function ProbabilityPill({ value }: { value: number }) {
   // mathematical operation) that the underlying numbers do not actually support.
   const b = bucketConfidence(value)
   return (
-    <span
-      className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] font-medium ${b.className}`}
-      title="Qualitative probability bucket; raw model probability hidden to avoid false precision."
+    <ExplainableBadge
+      className={`inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] ${b.className}`}
+      explanation="LLM probability bucket. The raw model probability is intentionally hidden to avoid false precision."
     >
       <span className="uppercase tracking-wide opacity-70">Probability</span>
       <span>{b.label}</span>
-    </span>
+    </ExplainableBadge>
   )
 }
 
@@ -54,9 +55,12 @@ function CatalystRow({ catalyst }: { catalyst: Catalyst }) {
       />
       <div className="flex-1 min-w-0">
         <div className="mb-0.5 flex flex-wrap items-center gap-2">
-          <span className="rounded bg-accent-50 px-2 py-0.5 text-xs font-medium text-accent-700">
+          <ExplainableBadge
+            className="border-accent-100 bg-accent-50 px-2 py-0.5 text-xs text-accent-700"
+            explanation="Time window extracted or inferred from management's guidance. It indicates when the catalyst should be monitored, not a price target date."
+          >
             {catalyst.timeline}
-          </span>
+          </ExplainableBadge>
           {shouldSurfaceConfidence(catalyst.confidence) && <ConfidenceBadge value={catalyst.confidence} />}
         </div>
         <p className="text-sm text-text-primary">{catalyst.description}</p>
@@ -140,9 +144,13 @@ export function CatalystTimeline({ guidance }: Props) {
           <h4 className="mb-2 text-sm font-medium text-text-secondary">Implicit Signals</h4>
           <div className="flex flex-wrap gap-2">
             {guidance.implicit_signals.map((s, i) => (
-              <span key={i} className="rounded bg-info-100 px-2 py-1 text-xs text-info-900">
+              <ExplainableBadge
+                key={i}
+                className="border-info-100 bg-info-100 px-2 py-1 text-xs text-info-900"
+                explanation="Implicit signal: an investment-relevant theme inferred from transcript language, not necessarily stated as formal guidance."
+              >
                 {s.topic} ({s.claim_type})
-              </span>
+              </ExplainableBadge>
             ))}
           </div>
         </div>

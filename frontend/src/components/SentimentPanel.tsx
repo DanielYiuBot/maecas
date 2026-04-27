@@ -1,6 +1,7 @@
 import type { EvasionScore, EvidenceCitation, QuestionQuality, SentimentProfile } from '../types/api'
 import { CitationButton } from './CitationButton'
 import { MethodologyTip } from './MethodologyTip'
+import { ExplainableBadge } from './ExplainableBadge'
 import { ConfidenceBadge, shouldSurfaceConfidence } from '../lib/confidence'
 import {
   OrdinalChip,
@@ -54,8 +55,15 @@ function QualityChip({ q }: { q: QuestionQuality }) {
     soft: 'bg-ink-100 text-text-secondary',
     clarifying: 'bg-bone-200 text-ink-700',
   }
+  const explanation: Record<QuestionQuality, string> = {
+    probing: 'Analyst question quality: pushes for specifics, challenges assumptions, or asks a sharper follow-up.',
+    soft: 'Analyst question quality: relatively accepting or congratulatory, with limited pushback.',
+    clarifying: 'Analyst question quality: asks for factual clarification rather than challenging the thesis.',
+  }
   return (
-    <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${map[q]}`}>{q}</span>
+    <ExplainableBadge className={`px-1.5 py-0.5 text-[10px] ${map[q]}`} explanation={explanation[q]}>
+      {q}
+    </ExplainableBadge>
   )
 }
 
@@ -103,17 +111,20 @@ function EvasionGrid({
               <div className="mb-0.5 flex flex-wrap items-center gap-1.5">
                 <QualityChip q={e.question_quality} />
                 {isEvasive && (
-                  <span
-                    className="rounded border border-bear-100 bg-bear-50 px-1.5 py-0.5 text-[10px] font-medium text-bear-900"
-                    title="Qualitative evasion bucket; underlying model value hidden to avoid false precision"
+                  <ExplainableBadge
+                    className="border-bear-100 bg-bear-50 px-1.5 py-0.5 text-[10px] text-bear-900"
+                    explanation="LLM evasion bucket. This appears when management gave a partial answer, pivoted away from the specific question, or declined to quantify."
                   >
                     Evasive answer
-                  </span>
+                  </ExplainableBadge>
                 )}
                 {e.topic && (
-                  <span className="rounded bg-accent-50 px-1.5 py-0.5 text-[10px] font-medium text-accent-700">
+                  <ExplainableBadge
+                    className="border-accent-100 bg-accent-50 px-1.5 py-0.5 text-[10px] text-accent-700"
+                    explanation="LLM topic cluster for this analyst question. It groups related Q&A concerns so repeated pressure is easier to spot."
+                  >
                     {e.topic}
-                  </span>
+                  </ExplainableBadge>
                 )}
                 {e.analyst_name && (
                   <span className="text-[10px] text-text-muted">· {e.analyst_name}</span>
@@ -146,9 +157,12 @@ export function SentimentPanel({ sentiment }: Props) {
           <p className="maecas-eyebrow">Language</p>
           <h3 className="maecas-title">Sentiment &amp; Analyst Intelligence</h3>
         </div>
-        <span className="rounded-full bg-ink-100 px-3 py-1 text-sm font-medium text-text-secondary">
+        <ExplainableBadge
+          className="rounded-full border-ink-200 bg-ink-100 px-3 py-1 text-sm text-text-secondary"
+          explanation="LLM register label summarizing the communication style across presentation and Q&A. It is a qualitative read, not a trading recommendation."
+        >
           {sentiment.register}
-        </span>
+        </ExplainableBadge>
       </div>
 
       <div className="grid grid-cols-1 gap-4">

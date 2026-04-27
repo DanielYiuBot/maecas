@@ -2,6 +2,7 @@ import { Eye, Lightbulb, RefreshCcw } from 'lucide-react'
 import type { DeltaMagnitude, ExpectationBullet, ExpectationReality } from '../types/api'
 import { CitationButton } from './CitationButton'
 import { MethodologyTip } from './MethodologyTip'
+import { ExplainableBadge } from './ExplainableBadge'
 
 interface Props {
   expectation: ExpectationReality | null
@@ -11,6 +12,12 @@ const DELTA_STYLES: Record<DeltaMagnitude, string> = {
   minor: 'bg-ink-100 text-text-secondary border-border',
   material: 'bg-warn-50 text-warn-900 border-warn-100',
   inflection: 'bg-bull-50 text-bull-900 border-bull-100',
+}
+
+const DELTA_EXPLANATIONS: Record<DeltaMagnitude, string> = {
+  minor: 'LLM assessment: the call mostly confirmed the pre-call market narrative, with limited thesis change.',
+  material: 'LLM assessment: the call changed the investment narrative in a meaningful way, but not enough to call a full thesis inflection.',
+  inflection: 'LLM assessment: the call introduced a thesis-altering change that may require a materially different view of the stock.',
 }
 
 function fmtConsensusNum(v: number | null | undefined): string {
@@ -102,11 +109,12 @@ export function ExpectationRealityPanel({ expectation }: Props) {
             Pre-call narrative anchored in consensus and market context, compared to post-call outcome.
           </p>
         </div>
-        <span
-          className={`rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-wide ${DELTA_STYLES[expectation.delta_magnitude]}`}
+        <ExplainableBadge
+          className={`rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wide ${DELTA_STYLES[expectation.delta_magnitude]}`}
+          explanation={DELTA_EXPLANATIONS[expectation.delta_magnitude]}
         >
           {expectation.delta_magnitude}
-        </span>
+        </ExplainableBadge>
       </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
@@ -121,12 +129,13 @@ export function ExpectationRealityPanel({ expectation }: Props) {
             </p>
             <div className="flex flex-wrap gap-1.5">
               {sources.map((source) => (
-                <span
+                <ExplainableBadge
                   key={source}
-                  className="rounded-full border border-border bg-surface-card px-2 py-0.5 text-[11px] text-text-secondary"
+                  className="rounded-full border-border bg-surface-card px-2 py-0.5 text-[11px] text-text-secondary"
+                  explanation="Input source used to ground the pre-call expectation. This is not a standalone signal; it tells you what evidence the LLM was allowed to use."
                 >
                   {sourceLabel(source)}
-                </span>
+                </ExplainableBadge>
               ))}
             </div>
           </div>
