@@ -2,10 +2,7 @@ import { useState } from 'react'
 import { AlertTriangle, ChevronDown, ChevronUp } from 'lucide-react'
 import type { Catalyst, GuidanceCatalysts, ImpactMagnitude } from '../types/api'
 import { CitationButton } from './CitationButton'
-import { MethodologyTip } from './MethodologyTip'
-import { ConfidenceBadge, bucketConfidence, shouldSurfaceConfidence } from '../lib/confidence'
-import { OrdinalChip, surpriseGapToOrdinal } from '../lib/ordinal'
-import { ExplainableBadge } from './ExplainableBadge'
+import { MethodChip } from './MethodChip'
 
 interface Props {
   guidance: GuidanceCatalysts
@@ -19,30 +16,13 @@ const IMPACT_PILL: Record<ImpactMagnitude, string> = {
 
 function ImpactPill({ value }: { value: ImpactMagnitude }) {
   return (
-    <ExplainableBadge
-      className={`inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] ${IMPACT_PILL[value]}`}
-      explanation="LLM impact bucket: qualitative estimate of how much this catalyst would matter to the thesis if it materializes."
+    <span
+      className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] uppercase tracking-wide ${IMPACT_PILL[value]}`}
+      title="LLM impact bucket: qualitative estimate of how much this catalyst would matter to the thesis."
     >
-      <span className="uppercase tracking-wide opacity-70">Impact</span>
-      <span className="capitalize">{value}</span>
-    </ExplainableBadge>
-  )
-}
-
-function ProbabilityPill({ value }: { value: number }) {
-  // Reuse the same High/Medium/Low palette as ConfidenceBadge so the eye reads
-  // probability and confidence the same way. We deliberately drop the EV
-  // multiplication that used to appear here — it implied a unit (and a
-  // mathematical operation) that the underlying numbers do not actually support.
-  const b = bucketConfidence(value)
-  return (
-    <ExplainableBadge
-      className={`inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] ${b.className}`}
-      explanation="LLM probability bucket. The raw model probability is intentionally hidden to avoid false precision."
-    >
-      <span className="uppercase tracking-wide opacity-70">Probability</span>
-      <span>{b.label}</span>
-    </ExplainableBadge>
+      <span className="opacity-70">Impact</span>
+      <span>{value}</span>
+    </span>
   )
 }
 
@@ -50,25 +30,18 @@ function CatalystRow({ catalyst }: { catalyst: Catalyst }) {
   const [open, setOpen] = useState(false)
   return (
     <div className="relative flex items-start gap-4 pl-4">
-      <div
-        className="mt-1.5 -ml-1.5 h-3 w-3 shrink-0 rounded-full border-2 border-accent-500 bg-surface-card"
-      />
-      <div className="flex-1 min-w-0">
+      <div className="mt-1.5 -ml-1.5 h-3 w-3 shrink-0 rounded-full border-2 border-accent-500 bg-surface-card" />
+      <div className="min-w-0 flex-1">
         <div className="mb-0.5 flex flex-wrap items-center gap-2">
-          <ExplainableBadge
-            className="border-accent-100 bg-accent-50 px-2 py-0.5 text-xs text-accent-700"
-            explanation="Time window extracted or inferred from management's guidance. It indicates when the catalyst should be monitored, not a price target date."
-          >
+          <span className="rounded border border-accent-100 bg-accent-50 px-2 py-0.5 text-xs text-accent-700">
             {catalyst.timeline}
-          </ExplainableBadge>
-          {shouldSurfaceConfidence(catalyst.confidence) && <ConfidenceBadge value={catalyst.confidence} />}
+          </span>
         </div>
         <p className="text-sm text-text-primary">{catalyst.description}</p>
         <p className="mt-0.5 text-xs text-text-secondary">Magnitude: {catalyst.magnitude_est}</p>
 
         <div className="mt-2 flex flex-wrap items-center gap-1.5">
           <ImpactPill value={catalyst.expected_impact_magnitude} />
-          <ProbabilityPill value={catalyst.probability} />
         </div>
 
         {(catalyst.invalidation_triggers.length > 0 || catalyst.evidence_citations.length > 0) && (
@@ -109,7 +82,12 @@ function CatalystRow({ catalyst }: { catalyst: Catalyst }) {
   )
 }
 
-export function CatalystTimeline({ guidance }: Props) {
+/**
+ * Guidance panel — explicit guidance + catalysts.
+ *
+ * Renamed from `CatalystTimeline`. The panel stays focused on timeline
+ * catalysts, invalidation triggers, and supporting citations. */
+export function GuidancePanel({ guidance }: Props) {
   const catalysts = guidance.catalysts
 
   return (
@@ -119,9 +97,10 @@ export function CatalystTimeline({ guidance }: Props) {
           <p className="maecas-eyebrow">Forward View</p>
           <h3 className="maecas-title">Catalysts &amp; Guidance</h3>
           <p className="maecas-subtitle mt-0.5">
-            Each catalyst shows qualitative impact, probability bucket, and what would falsify it.
+            Each catalyst shows qualitative impact and what would falsify it.
           </p>
         </div>
+        <MethodChip panel="guidance" scoreOrBucket="Catalyst evidence trail" />
       </div>
 
       {catalysts.length > 0 ? (
@@ -141,26 +120,20 @@ export function CatalystTimeline({ guidance }: Props) {
 
       {guidance.implicit_signals.length > 0 && (
         <div className="mt-6">
-          <h4 className="mb-2 text-sm font-medium text-text-secondary">Implicit Signals</h4>
+          <h4 className="mb-2 text-sm font-medium text-text-secondary">Implicit signals</h4>
           <div className="flex flex-wrap gap-2">
             {guidance.implicit_signals.map((s, i) => (
-              <ExplainableBadge
+              <span
                 key={i}
-                className="border-info-100 bg-info-100 px-2 py-1 text-xs text-info-900"
-                explanation="Implicit signal: an investment-relevant theme inferred from transcript language, not necessarily stated as formal guidance."
+                className="inline-flex items-center gap-1 rounded border border-info-100 bg-info-100 px-2 py-1 text-xs text-info-900"
+                title="Investment-relevant theme inferred from transcript language; not formal guidance."
               >
-                {s.topic} ({s.claim_type})
-              </ExplainableBadge>
+                {s.topic} <span className="text-info-900/60">({s.claim_type})</span>
+              </span>
             ))}
           </div>
         </div>
       )}
-
-      <div className="mt-4 flex flex-wrap items-center gap-2 text-xs text-text-muted">
-        <span>Surprise gap:</span>
-        <OrdinalChip result={surpriseGapToOrdinal(guidance.surprise_gap_score)} prefix="Gap" />
-        <MethodologyTip>{guidance.surprise_gap_methodology.heuristic}</MethodologyTip>
-      </div>
     </div>
   )
 }

@@ -1,22 +1,21 @@
 import { useState, useEffect } from 'react'
+import { ArrowLeft } from 'lucide-react'
 import { Upload } from './components/Upload'
 import { Progress } from './components/Progress'
-import { CoreThesisHeader } from './components/CoreThesisHeader'
-import { ExpectationRealityPanel } from './components/ExpectationRealityPanel'
-import { RatingCard } from './components/RatingCard'
-import { SignalFeed } from './components/SignalFeed'
+import { DecisionStrip } from './components/DecisionStrip'
+import { DecisionPanel } from './components/DecisionPanel'
+import { SummaryPanel } from './components/SummaryPanel'
 import { LSEGInsightsPanel } from './components/LSEGInsightsPanel'
-import { FinancialsChart } from './components/FinancialsChart'
 import { SentimentPanel } from './components/SentimentPanel'
-import { CatalystTimeline } from './components/CatalystTimeline'
-import { DeltaView } from './components/DeltaView'
-import { WhatChangedPanel } from './components/WhatChangedPanel'
+import { QoQPanel } from './components/QoQPanel'
+import { GuidancePanel } from './components/GuidancePanel'
 import { TranscriptDrawer } from './components/TranscriptDrawer'
+import { MethodologyDrawer } from './components/MethodologyDrawer'
 import { TranscriptProvider } from './context/TranscriptContext'
+import { MethodologyProvider } from './context/MethodologyContext'
 import { DedupRegistryProvider } from './lib/dedup'
 import { useSSE } from './hooks/useSSE'
 import { useAnalysis } from './hooks/useAnalysis'
-import { ArrowLeft } from 'lucide-react'
 import { logger } from './lib/logger'
 
 type View = 'upload' | 'progress' | 'dashboard'
@@ -59,32 +58,37 @@ export default function App() {
     setJobId(null)
   }
 
+  // Pre-dashboard views keep the simple branded header. The dashboard view
+  // swaps in the persistent DecisionStrip so the verdict and LSEG surprise
+  // are always visible while scrolling.
+  const showLightHeader = view !== 'dashboard' || !currentReport
+
   return (
     <div className="min-h-screen bg-surface-base">
-      <header className="sticky top-0 z-20 border-b border-border bg-bone-50/95 backdrop-blur-sm">
-        <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-4 py-3 sm:px-6">
-          <div className="flex items-center gap-3">
-            {view !== 'upload' && (
-              <button
-                onClick={handleReset}
-                className="rounded-md border border-border px-2 py-1 text-text-muted transition hover:bg-surface-muted hover:text-text-primary"
-              >
-                <ArrowLeft className="w-5 h-5" />
-              </button>
-            )}
-            <div>
-              <h1 className="text-lg font-bold">MAECAS</h1>
-              <p className="text-[11px] uppercase tracking-[0.16em] text-text-muted">Earnings Intelligence Console</p>
+      {showLightHeader && (
+        <header className="sticky top-0 z-20 border-b border-border bg-bone-50/95 backdrop-blur-sm">
+          <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-4 py-3 sm:px-6">
+            <div className="flex items-center gap-3">
+              {view !== 'upload' && (
+                <button
+                  onClick={handleReset}
+                  className="rounded-md border border-border px-2 py-1 text-text-muted transition hover:bg-surface-muted hover:text-text-primary"
+                >
+                  <ArrowLeft className="w-5 h-5" />
+                </button>
+              )}
+              <div>
+                <h1 className="text-lg font-bold">MAECAS</h1>
+                <p className="text-[11px] uppercase tracking-[0.16em] text-text-muted">Earnings Intelligence Console</p>
+              </div>
             </div>
           </div>
-          {currentReport && (
-            <div className="rounded-full border border-border bg-surface-card px-4 py-1.5 text-xs text-text-secondary">
-              {currentReport.metadata.company_name} ({currentReport.metadata.company_ticker})
-              &middot; {currentReport.metadata.event_date.split('T')[0]}
-            </div>
-          )}
-        </div>
-      </header>
+        </header>
+      )}
+
+      {view === 'dashboard' && currentReport && (
+        <DecisionStrip report={currentReport} onReset={handleReset} />
+      )}
 
       <main className="w-full px-4 py-8 sm:px-6">
         {view === 'upload' && (
@@ -118,39 +122,25 @@ export default function App() {
 
         {view === 'dashboard' && currentReport && (
           <TranscriptProvider utterances={currentReport.transcript_utterances ?? []}>
-            <DedupRegistryProvider>
-            <div className="mx-auto w-full max-w-[1120px] space-y-6">
-              <CoreThesisHeader signals={currentReport.signals} />
-
-              <ExpectationRealityPanel expectation={currentReport.expectation_reality} />
-
-              <RatingCard report={currentReport} />
-
-              <SignalFeed signals={currentReport.signals} />
-
-              <FinancialsChart financials={currentReport.financials} />
-
-              <LSEGInsightsPanel
-                lseg_data={currentReport.lseg_data}
-                market={currentReport.market}
-                metadata={currentReport.metadata}
-              />
-
-              <SentimentPanel sentiment={currentReport.sentiment} />
-
-              <CatalystTimeline guidance={currentReport.guidance} />
-
-              <DeltaView delta={currentReport.delta} />
-
-              <WhatChangedPanel
-                narrative={currentReport.narrative}
-                hiddenGems={currentReport.hidden_gems ?? []}
-                modelWarnings={currentReport.model_warnings ?? []}
-                riskFlags={currentReport.risk_flags ?? []}
-              />
-            </div>
-            </DedupRegistryProvider>
-            <TranscriptDrawer />
+            <MethodologyProvider entries={currentReport.methodology ?? []}>
+              <DedupRegistryProvider>
+                <div className="mx-auto w-full max-w-[1120px] space-y-6">
+                  <DecisionPanel signals={currentReport.signals} riskFlags={currentReport.risk_flags ?? []} />
+                  <SummaryPanel report={currentReport} />
+                  <LSEGInsightsPanel
+                    lseg_data={currentReport.lseg_data}
+                    market={currentReport.market}
+                    metadata={currentReport.metadata}
+                    financials={currentReport.financials}
+                  />
+                  <SentimentPanel sentiment={currentReport.sentiment} />
+                  <QoQPanel delta={currentReport.delta} />
+                  <GuidancePanel guidance={currentReport.guidance} />
+                </div>
+              </DedupRegistryProvider>
+              <TranscriptDrawer />
+              <MethodologyDrawer />
+            </MethodologyProvider>
           </TranscriptProvider>
         )}
       </main>

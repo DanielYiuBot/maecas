@@ -1,11 +1,19 @@
 """Agent 8 — Orchestrator / Synthesis.
 
 Receives all upstream schemas and produces the final AnalysisReport with:
-  - composite scores (with prior-quarter anchors when available),
-  - a short non-redundant narrative (what changed + what was downplayed),
-  - hidden gems buried in the transcript,
-  - a deterministic ValuationLinkage computed from guidance + LSEG consensus,
-  - split pipeline warnings into model_warnings vs risk_flags.
+  - a short non-redundant narrative (what changed + what was downplayed,
+    each claim source-tagged so the Highlight panel knows where to put it),
+  - a deterministic per-panel `methodology` payload that powers the
+    context-aware Methodology drawer on the frontend,
+  - a split of accumulated pipeline warnings into model_warnings (engineer
+    diagnostics) vs risk_flags (thesis-relevant caveats).
+
+The 2026 revamp removed `composite_scores`, `valuation_linkage`, and
+`hidden_gems` from this agent's responsibilities. Composite scores were
+dashboard-orphaned, valuation_linkage proved too prone to unit-scaling
+hallucination to ship, and hidden gems generated noisy "single-mention"
+threads that were rarely actionable. The orchestrator now focuses on
+narrative + methodology + warning classification only.
 """
 
 import json
@@ -15,15 +23,16 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from backend.agents.base import BaseAgent
-from backend.schemas.report import AnalysisReport, CompositeScore, NarrativeSection
+from backend.schemas.report import (
+    AnalysisReport,
+    MethodologyEntry,
+    NarrativeClaim,
+    NarrativeSection,
+)
+from backend.schemas.expectation import HiddenGem, PotentialRisk
 from backend.schemas.market import MarketContext
 from backend.schemas.signals import TradingSignals
 from backend.schemas.sentiment import ScoreMethodology
-from backend.schemas.expectation import (
-    HiddenGem,
-    ValuationLinkage,
-    ValuationSensitivityRow,
-)
 from backend.graph.state import GraphState
 
 logger = logging.getLogger(__name__)
@@ -83,218 +92,6 @@ def _audit_citations(transcript, signals: TradingSignals, narrative: list[Narrat
     return warnings
 
 
-_UNIT_TO_USD: dict[str, float] = {
-    "usd": 1.0,
-    "usd_raw": 1.0,
-    "dollars": 1.0,
-    "usd_thousands": 1_000.0,
-    "usd_millions": 1_000_000.0,
-    "usd_million": 1_000_000.0,
-    "mm": 1_000_000.0,
-    "usd_billions": 1_000_000_000.0,
-    "usd_billion": 1_000_000_000.0,
-    "bn": 1_000_000_000.0,
-}
-
-
-def _guess_usd_scale(mid: float, anchor: Optional[float]) -> tuple[float, str]:
-    """Fallback when `unit` is missing: use an order-of-magnitude heuristic vs
-    a reference anchor (LSEG consensus). Returns (scale_factor, reason)."""
-    if anchor is None or anchor == 0:
-        return 1.0, "no anchor available, treating value as raw USD"
-    ratio = anchor / abs(mid) if mid != 0 else float("inf")
-    if ratio > 500_000_000:
-        return 1_000_000_000.0, "value looks ~1e9 smaller than consensus — scaled by 1e9 (billions)"
-    if ratio > 500_000:
-        return 1_000_000.0, "value looks ~1e6 smaller than consensus — scaled by 1e6 (millions)"
-    if ratio > 500:
-        return 1_000.0, "value looks ~1e3 smaller than consensus — scaled by 1e3 (thousands)"
-    return 1.0, "value within same order of magnitude as consensus"
-
-
-def _normalize_to_usd(g, anchor: Optional[float] = None) -> tuple[Optional[float], str]:
-    """Convert a GuidanceRange midpoint to raw USD. Returns (mid_usd, reason)."""
-    mid_raw: Optional[float] = None
-    if g.low is not None and g.high is not None:
-        mid_raw = (g.low + g.high) / 2
-    elif g.low is not None:
-        mid_raw = g.low
-    elif g.high is not None:
-        mid_raw = g.high
-    if mid_raw is None:
-        return None, "no numeric midpoint"
-
-    unit_key = (g.unit or "").strip().lower()
-    if unit_key in _UNIT_TO_USD:
-        factor = _UNIT_TO_USD[unit_key]
-        return mid_raw * factor, f"unit={g.unit}, factor={factor:g}"
-
-    factor, why = _guess_usd_scale(mid_raw, anchor)
-    return mid_raw * factor, f"unit missing; {why}"
-
-
-import re
-
-_QUARTERLY_RE = re.compile(r"\b(q[1-4]|fq[0-4]|quarter|quarterly)\b", re.IGNORECASE)
-_ANNUAL_RE = re.compile(
-    r"(full[\s-]?year|fiscal\s+year|annual(?:ly)?|calendar\s+(?:year|\d{4})|\bfy[\s-]*\d{2,4}\b)",
-    re.IGNORECASE,
-)
-
-
-def _classify_timeline(timeline: str, metric: str) -> str:
-    """Return 'quarterly', 'annual', or 'unclassified'. Quarterly wins on conflict
-    because 'Q1 FY2027' means Q1 of fiscal 2027, not the whole fiscal year."""
-    t = f"{timeline} {metric}"
-    if _QUARTERLY_RE.search(t):
-        return "quarterly"
-    if _ANNUAL_RE.search(t):
-        return "annual"
-    return "unclassified"
-
-
-def _pick_revenue_guidance(guidance) -> tuple[Optional[object], str, float]:
-    """Pick the best revenue guidance for valuation comparison.
-    Returns (guidance_obj, horizon_label, annualization_factor).
-    """
-    if not guidance or not guidance.explicit_guidance:
-        return None, "none", 1.0
-
-    rev_guides = [
-        g for g in guidance.explicit_guidance
-        if "revenue" in g.metric.lower() and (g.low is not None or g.high is not None)
-    ]
-    if not rev_guides:
-        return None, "none", 1.0
-
-    annuals = [g for g in rev_guides if _classify_timeline(g.timeline, g.metric) == "annual"]
-    if annuals:
-        return annuals[0], "annual", 1.0
-
-    quarterlies = [g for g in rev_guides if _classify_timeline(g.timeline, g.metric) == "quarterly"]
-    if quarterlies:
-        return quarterlies[0], "quarterly_annualized_x4", 4.0
-
-    return rev_guides[0], "unclassified", 1.0
-
-
-def _pick_eps_guidance(guidance) -> Optional[object]:
-    if not guidance or not guidance.explicit_guidance:
-        return None
-    for g in guidance.explicit_guidance:
-        low = g.metric.lower()
-        if "eps" in low or "earnings per share" in low:
-            if g.low is not None or g.high is not None:
-                return g
-    return None
-
-
-def _compute_valuation_linkage(guidance, lseg_data) -> Optional[ValuationLinkage]:
-    """Translate transcript guidance vs consensus into implied upside and a simple
-    bull/base/bear sensitivity matrix. No LLM — fully deterministic so the numbers
-    can be audited.
-
-    Handles three classes of defect that previously produced nonsense outputs:
-      * unit mismatch (guidance in millions vs LSEG in raw dollars),
-      * period mismatch (quarterly guide vs annual consensus),
-      * missing EPS upside calculation.
-    """
-    if not lseg_data or not lseg_data.consensus:
-        return None
-
-    cons = lseg_data.consensus
-    eps_fy1 = cons.eps_mean
-    rev_fy1 = cons.revenue_mean
-    ebitda_fy1 = cons.ebitda_mean
-
-    implied_rev_pct: Optional[float] = None
-    implied_eps_pct: Optional[float] = None
-    rev_note = ""
-    eps_note = ""
-
-    rev_guide, rev_horizon, rev_factor = _pick_revenue_guidance(guidance)
-    if rev_guide and rev_fy1:
-        mid_usd, norm_reason = _normalize_to_usd(rev_guide, anchor=rev_fy1)
-        if mid_usd is not None:
-            mid_annualized = mid_usd * rev_factor
-            implied_rev_pct = ((mid_annualized - rev_fy1) / rev_fy1) * 100
-            rev_note = (
-                f"Used {rev_guide.metric} ({rev_guide.timeline}) — horizon={rev_horizon}; "
-                f"{norm_reason}"
-            )
-
-    eps_guide = _pick_eps_guidance(guidance)
-    if eps_guide and eps_fy1:
-        # EPS is usually emitted in raw dollars per share; no unit factor needed.
-        mid_eps = None
-        if eps_guide.low is not None and eps_guide.high is not None:
-            mid_eps = (eps_guide.low + eps_guide.high) / 2
-        elif eps_guide.low is not None:
-            mid_eps = eps_guide.low
-        elif eps_guide.high is not None:
-            mid_eps = eps_guide.high
-        if mid_eps is not None and eps_fy1 != 0:
-            implied_eps_pct = ((mid_eps - eps_fy1) / eps_fy1) * 100
-            eps_note = f"EPS from {eps_guide.metric} ({eps_guide.timeline}) vs consensus EPS mean"
-
-    sensitivity: list[ValuationSensitivityRow] = [
-        ValuationSensitivityRow(
-            scenario="bull",
-            rev_delta_pct=5.0,
-            eps_delta_pct=12.0 if eps_fy1 else None,
-            commentary="5% revenue beat typically flows through at ~2.4x operating leverage.",
-        ),
-        ValuationSensitivityRow(
-            scenario="base",
-            rev_delta_pct=0.0,
-            eps_delta_pct=0.0,
-            commentary="Consensus FY1 mid-point.",
-        ),
-        ValuationSensitivityRow(
-            scenario="bear",
-            rev_delta_pct=-5.0,
-            eps_delta_pct=-12.0 if eps_fy1 else None,
-            commentary="Symmetric downside assuming similar operating leverage.",
-        ),
-    ]
-
-    multiple_parts: list[str] = []
-    if rev_note:
-        multiple_parts.append(rev_note)
-    if eps_note:
-        multiple_parts.append(eps_note)
-    if not multiple_parts:
-        multiple_parts.append("Consensus shown without a comparable revenue guidance range.")
-    multiple_justification = " · ".join(multiple_parts)
-
-    return ValuationLinkage(
-        fy1_consensus_eps=eps_fy1,
-        fy1_consensus_revenue=rev_fy1,
-        fy1_consensus_ebitda=ebitda_fy1,
-        implied_revenue_upside_pct=implied_rev_pct,
-        implied_eps_upside_pct=implied_eps_pct,
-        multiple_justification=multiple_justification,
-        sensitivity=sensitivity,
-        methodology=ScoreMethodology(
-            metric="valuation_linkage",
-            scale="percent_vs_consensus",
-            inputs=[
-                "guidance.explicit_guidance[*].unit",
-                "lseg_data.consensus.revenue_mean",
-                "lseg_data.consensus.eps_mean",
-            ],
-            heuristic=(
-                "Pick the best-aligned revenue guidance (full-year preferred, else "
-                "quarterly ×4). Normalize to raw USD using the extractor-emitted unit, "
-                "falling back to a magnitude heuristic vs the LSEG anchor when unit is "
-                "missing. Compare mid-point to FY1 revenue consensus. Apply the same "
-                "extraction to EPS when present. Sensitivity rows apply symmetric "
-                "+/-5% revenue shocks through a 2.4x operating leverage to EPS."
-            ),
-        ),
-    )
-
-
 def _classify_warnings(
     warnings: list[str],
     warning_split: dict,
@@ -329,25 +126,250 @@ def _classify_warnings(
     return model_w, risk_f
 
 
-def _composite_scores_with_prior(
-    composite_scores: dict,
-    prior_sentiment,
-) -> dict:
-    """Attach prior_score when we can infer it from prior-quarter sentiment."""
-    if not composite_scores:
-        return composite_scores
+# Static lookup table that drives the deterministic _build_methodology() pass.
+# Each entry corresponds to a single renderable score / bucket on the 6-panel
+# dashboard. Adding a new score on the frontend means adding an entry here.
+_METHODOLOGY_TABLE: list[dict] = [
+    {
+        "panel": "summary",
+        "score_or_bucket": "Hidden gems / Potential risks",
+        "inputs": ["sentiment", "delta", "signals", "guidance", "expectation_reality"],
+        "produced_by": "synthesize / agent_08_orchestrator.yaml",
+        "is_llm": True,
+        "prompt_summary": (
+            "Surfaces 1-3 statements buried deep or mentioned only once in the call "
+            "that are not already promoted as primary signals or top catalysts, plus "
+            "1-3 risks the LLM judges material that the bull/bear stack may underweight."
+        ),
+        "bucket_cutoffs": "Severity for potential_risks: low / medium / high.",
+        "source": "Synthesis",
+    },
+    {
+        "panel": "decision",
+        "score_or_bucket": "Decision",
+        "inputs": [
+            "signals.core_thesis",
+            "signals.bull_signals",
+            "signals.bear_signals",
+            "expectation_reality.delta_magnitude",
+        ],
+        "produced_by": "alpha / agent_07_alpha.yaml",
+        "is_llm": True,
+        "prompt_summary": (
+            "Alpha agent reads sentiment, market context, guidance, expectation-vs-reality, "
+            "and QoQ delta; classifies each candidate signal into primary/secondary/noise "
+            "with at most three primary; then emits a Buy/Monitor/Avoid decision anchored "
+            "on the primary stack."
+        ),
+        "bucket_cutoffs": "Buy / Monitor / Avoid (categorical, no numeric cutoffs).",
+        "source": "Synthesis",
+    },
+    {
+        "panel": "summary",
+        "score_or_bucket": "Top bull / bear signals",
+        "inputs": ["signals.bull_signals[priority_tier=primary]", "signals.bear_signals[priority_tier=primary]"],
+        "produced_by": "alpha / agent_07_alpha.yaml",
+        "is_llm": True,
+        "prompt_summary": (
+            "Bull/bear primary tier holds at most three signals total. Each carries a "
+            "so_what consequence, evidence citations, a P&L linkage, a horizon, and a "
+            "priced-in assessment grounded in LSEG consensus when available."
+        ),
+        "bucket_cutoffs": "Tiering: Primary / Secondary / Noise (Noise hidden from dashboard surface).",
+        "source": "Synthesis",
+    },
+    {
+        "panel": "lseg",
+        "score_or_bucket": "Surprise %",
+        "inputs": ["lseg_data.estimates_surprise_fy0.eps", "lseg_data.estimates_surprise_fy0.revenue"],
+        "produced_by": "lseg fetch (deterministic)",
+        "is_llm": False,
+        "prompt_summary": (
+            "Computed by the LSEG service: (actual - mean_estimate) / mean_estimate, then "
+            "standardized via SUE = surprise / estimate dispersion."
+        ),
+        "bucket_cutoffs": "|SUE| < 1 in line, 1-2 meaningful, >2 large surprise.",
+        "source": "LSEG",
+    },
+    {
+        "panel": "lseg",
+        "score_or_bucket": "Stated vs consensus (beat/miss flags)",
+        "inputs": ["financials.figures", "lseg_data.consensus", "market.beat_miss_flags"],
+        "produced_by": "market_ctx / agent_04_market.yaml",
+        "is_llm": True,
+        "prompt_summary": (
+            "Reconciles transcript-stated figures against LSEG consensus where the metrics "
+            "match; emits beat/miss direction with the surprise % attached."
+        ),
+        "bucket_cutoffs": "Direction: beat / miss / inline.",
+        "source": "LSEG",
+    },
+    {
+        "panel": "sentiment",
+        "score_or_bucket": "Tone",
+        "inputs": ["sentiment.mgmt_confidence_presentation", "sentiment.mgmt_confidence_qa"],
+        "produced_by": "sentiment_agent / agent_02_sentiment_synthesis.yaml",
+        "is_llm": True,
+        "prompt_summary": (
+            "Average of management confidence in Presentation and Q&A on a 1-10 scale; "
+            "synthesized from the chunked QA passes plus presentation pass."
+        ),
+        "bucket_cutoffs": "<=3 Defensive, 4-6 Mixed, 7-10 Confident.",
+        "source": "Transcript",
+    },
+    {
+        "panel": "sentiment",
+        "score_or_bucket": "Hedging",
+        "inputs": ["sentiment.hedging_frequency"],
+        "produced_by": "sentiment_agent / agent_02_sentiment_synthesis.yaml",
+        "is_llm": True,
+        "prompt_summary": "Frequency of qualifier words on a 1-10 scale; higher = more hedging language.",
+        "bucket_cutoffs": "<=3 Direct, 4-6 Some hedging, 7-10 Heavy hedging.",
+        "source": "Transcript",
+    },
+    {
+        "panel": "sentiment",
+        "score_or_bucket": "Evasion",
+        "inputs": ["sentiment.evasion_scores"],
+        "produced_by": "sentiment_agent / agent_02_sentiment_qa_batch.yaml",
+        "is_llm": True,
+        "prompt_summary": (
+            "Per-question evasion score 0-5. The dashboard collapses this into the share "
+            "of analyst questions where management got an evasion score >= 3."
+        ),
+        "bucket_cutoffs": "Share of evasive answers: <20% Low, 20-49% Medium, >=50% High.",
+        "source": "Transcript",
+    },
+    {
+        "panel": "qoq",
+        "score_or_bucket": "Hedging drift",
+        "inputs": ["delta.language_drift.hedging_drift"],
+        "produced_by": "delta_agent (deterministic word-rate diff)",
+        "is_llm": False,
+        "prompt_summary": (
+            "Difference in hedge-word frequency per 1k words between current and prior "
+            "transcripts. Positive = more hedging this quarter."
+        ),
+        "bucket_cutoffs": "|drift| <= 0.5 within noise; >0.5 meaningful shift.",
+        "source": "Transcript",
+    },
+    {
+        "panel": "qoq",
+        "score_or_bucket": "Topic deltas",
+        "inputs": ["delta.topic_deltas", "delta.topic_trajectory"],
+        "produced_by": "delta_agent / agent_06_delta_pairwise.yaml + agent_06_delta_trend.yaml",
+        "is_llm": True,
+        "prompt_summary": (
+            "Per-topic comparison vs each prior quarter: novelty status (new / repeated / "
+            "de-emphasized / resolved) plus a sentiment delta in -1..+1."
+        ),
+        "bucket_cutoffs": "Sentiment delta: |x|<0.25 unchanged, 0.25-0.6 shift, >=0.6 strong shift.",
+        "source": "Transcript",
+    },
+    {
+        "panel": "guidance",
+        "score_or_bucket": "Guidance specificity",
+        "inputs": [
+            "guidance.explicit_guidance",
+            "delta.guidance_specificity_delta",
+        ],
+        "produced_by": "guidance_agent / agent_05_guidance.yaml",
+        "is_llm": True,
+        "prompt_summary": (
+            "Share of explicit guidance items that have both a low and a high range; "
+            "delta vs prior quarter is emitted by the delta agent."
+        ),
+        "bucket_cutoffs": "Share concrete: <20% Low, 20-49% Medium, >=50% High.",
+        "source": "Transcript",
+    },
+]
 
-    prior_sentiment_score: Optional[int] = None
-    if prior_sentiment is not None:
-        avg = (prior_sentiment.mgmt_confidence_presentation + prior_sentiment.mgmt_confidence_qa) / 2
-        prior_sentiment_score = int(round(avg))
 
-    for key, raw in composite_scores.items():
-        if not isinstance(raw, dict):
-            continue
-        if key == "sentiment" and prior_sentiment_score is not None and raw.get("prior_score") is None:
-            raw["prior_score"] = prior_sentiment_score
-    return composite_scores
+def _classify_caveat_panel(caveat: str) -> str:
+    """Heuristically map a free-text pipeline warning to a panel key for caveat
+    routing in the methodology drawer."""
+    low = caveat.lower()
+    if any(k in low for k in ("sentiment", "qa coverage", "speaker tone", "evasion")):
+        return "sentiment"
+    if any(k in low for k in ("delta", "qoq", "language drift", "topic")):
+        return "qoq"
+    if any(k in low for k in ("guidance", "catalyst", "surprise gap")):
+        return "guidance"
+    if any(k in low for k in ("market", "lseg", "consensus", "beat", "miss")):
+        return "lseg"
+    if any(k in low for k in ("alpha", "signal", "thesis", "core_thesis", "decision")):
+        return "decision"
+    return "summary"
+
+
+def _build_methodology(
+    sentiment,
+    delta,
+    signals,
+    guidance,
+    market_context,
+    lseg_data,
+    expectation,
+    pipeline_warnings: list[str],
+) -> list[MethodologyEntry]:
+    """Deterministically assemble the per-panel methodology payload that powers
+    the Methodology drawer.
+
+    No LLM call: the drawer is a transparency surface, so it must be
+    auditable and stable. Inputs/cutoffs come from `_METHODOLOGY_TABLE`;
+    raw scores are pulled from upstream schemas; caveats are routed from
+    `pipeline_warnings` by keyword.
+    """
+    raw_scores: dict[tuple[str, str], Optional[float]] = {}
+    if sentiment is not None:
+        avg_tone = (sentiment.mgmt_confidence_presentation + sentiment.mgmt_confidence_qa) / 2
+        raw_scores[("sentiment", "Tone")] = float(avg_tone)
+        raw_scores[("sentiment", "Hedging")] = float(sentiment.hedging_frequency)
+        if sentiment.evasion_scores:
+            hot = sum(1 for e in sentiment.evasion_scores if e.score >= 3)
+            raw_scores[("sentiment", "Evasion")] = hot / max(1, len(sentiment.evasion_scores))
+        else:
+            raw_scores[("sentiment", "Evasion")] = 0.0
+    if delta and delta.language_drift:
+        raw_scores[("qoq", "Hedging drift")] = float(delta.language_drift.hedging_drift)
+    if guidance is not None:
+        if guidance.explicit_guidance:
+            concrete = sum(1 for g in guidance.explicit_guidance if g.low is not None and g.high is not None)
+            raw_scores[("guidance", "Guidance specificity")] = concrete / max(1, len(guidance.explicit_guidance))
+    if lseg_data and lseg_data.estimates_surprise_fy0:
+        rev = lseg_data.estimates_surprise_fy0.revenue
+        if rev and rev.surprise_pct is not None:
+            raw_scores[("lseg", "Surprise %")] = float(rev.surprise_pct)
+
+    caveats_by_panel: dict[str, list[str]] = {}
+    for w in pipeline_warnings:
+        panel = _classify_caveat_panel(w)
+        caveats_by_panel.setdefault(panel, []).append(w)
+
+    out: list[MethodologyEntry] = []
+    for entry in _METHODOLOGY_TABLE:
+        key = (entry["panel"], entry["score_or_bucket"])
+        out.append(
+            MethodologyEntry(
+                panel=entry["panel"],
+                score_or_bucket=entry["score_or_bucket"],
+                inputs=list(entry["inputs"]),
+                produced_by=entry["produced_by"],
+                is_llm=entry["is_llm"],
+                prompt_summary=entry["prompt_summary"],
+                bucket_cutoffs=entry.get("bucket_cutoffs"),
+                source=entry.get("source", "Synthesis"),
+                raw_score=raw_scores.get(key),
+                caveats=list(caveats_by_panel.get(entry["panel"], [])),
+            )
+        )
+
+    if signals and signals.core_thesis:
+        for entry in out:
+            if entry.panel == "decision" and entry.score_or_bucket == "Decision":
+                entry.caveats = list(set(entry.caveats))
+
+    return out
 
 
 async def run(state: GraphState) -> dict:
@@ -375,7 +397,6 @@ async def run(state: GraphState) -> dict:
 
     transcript = state.get("transcript")
     sentiment = state.get("sentiment")
-    prior_sentiment = state.get("prior_sentiment")
     financials = state.get("financials")
     market_context = state.get("market_context")
     lseg_data = state.get("lseg_data")
@@ -431,11 +452,9 @@ async def run(state: GraphState) -> dict:
 
         data = await _agent.call(system, user, provider, model)
 
-        composite_scores = data.get("composite_scores", {})
-        composite_scores = _composite_scores_with_prior(composite_scores, prior_sentiment)
-
         narrative_data = data.get("narrative", [])
-        hidden_gems_data = data.get("hidden_gems", [])
+        hidden_gems_data = data.get("hidden_gems", []) or []
+        potential_risks_data = data.get("potential_risks", []) or []
         warning_split = data.get("warning_split", {}) or {}
         additional_warnings = data.get("additional_warnings", [])
         for aw in additional_warnings:
@@ -445,32 +464,43 @@ async def run(state: GraphState) -> dict:
 
         warnings = _dedupe_warnings_preserve_order(warnings)
 
-        if not composite_scores:
-            composite_scores = {
-                key: {
-                    "score": 5,
-                    "key_drivers": ["Fallback score due to synthesis failure."],
-                    "methodology": {
-                        "metric": key,
-                        "scale": "1-10",
-                        "inputs": ["upstream agent outputs"],
-                        "heuristic": "Default midpoint assigned when orchestrator output omitted this score.",
-                    },
-                }
-                for key in ["sentiment", "financials", "guidance", "risk", "momentum"]
-            }
-        normalized_scores = {k: CompositeScore.model_validate(v) for k, v in composite_scores.items()}
-
         narrative_payload = narrative_data if isinstance(narrative_data, list) else []
-        narrative = [NarrativeSection.model_validate(x) for x in narrative_payload]
+        narrative: list[NarrativeSection] = []
+        for raw_section in narrative_payload:
+            try:
+                claims_payload = raw_section.get("claims") or []
+                normalized_claims: list[NarrativeClaim] = []
+                for raw_claim in claims_payload:
+                    if not isinstance(raw_claim, dict):
+                        continue
+                    if "source" not in raw_claim:
+                        raw_claim["source"] = "Synthesis"
+                    try:
+                        normalized_claims.append(NarrativeClaim.model_validate(raw_claim))
+                    except Exception as cerr:
+                        logger.debug("Orchestrator | bad narrative claim: %s", cerr)
+                normalized_section = {
+                    "section": raw_section.get("section", "what_changed"),
+                    "summary": raw_section.get("summary", ""),
+                    "claims": [c.model_dump() for c in normalized_claims],
+                }
+                narrative.append(NarrativeSection.model_validate(normalized_section))
+            except Exception as serr:
+                logger.debug("Orchestrator | bad narrative section: %s", serr)
 
         hidden_gems: list[HiddenGem] = []
-        if isinstance(hidden_gems_data, list):
-            for gem in hidden_gems_data:
-                try:
-                    hidden_gems.append(HiddenGem.model_validate(gem))
-                except Exception as gerr:
-                    logger.debug("Orchestrator | bad hidden_gem payload: %s", gerr)
+        for gem in hidden_gems_data if isinstance(hidden_gems_data, list) else []:
+            try:
+                hidden_gems.append(HiddenGem.model_validate(gem))
+            except Exception as gerr:
+                logger.debug("Orchestrator | bad hidden_gem: %s", gerr)
+
+        potential_risks: list[PotentialRisk] = []
+        for risk in potential_risks_data if isinstance(potential_risks_data, list) else []:
+            try:
+                potential_risks.append(PotentialRisk.model_validate(risk))
+            except Exception as rerr:
+                logger.debug("Orchestrator | bad potential_risk: %s", rerr)
 
         if not market_context:
             market_context = MarketContext(
@@ -513,14 +543,19 @@ async def run(state: GraphState) -> dict:
         if signals.direction == "Bullish" and not signals.bear_signals:
             warnings.append("Balance: bullish stance without bear signals after synthesis.")
 
-        # ValuationLinkage panel was removed from the dashboard because translating
-        # transcript guidance into implied % upside vs consensus is too prone to
-        # unit-scaling hallucination to ship as a quantitative output. The schema
-        # field is left in place for backward compatibility with stored jobs.
-        valuation_linkage = None
-
         warnings = _dedupe_warnings_preserve_order(warnings)
         model_warnings, risk_flags = _classify_warnings(warnings, warning_split)
+
+        methodology = _build_methodology(
+            sentiment=sentiment,
+            delta=delta,
+            signals=signals,
+            guidance=guidance,
+            market_context=market_context,
+            lseg_data=lseg_data,
+            expectation=expectation,
+            pipeline_warnings=warnings,
+        )
 
         report = AnalysisReport(
             job_id=job_id,
@@ -533,11 +568,11 @@ async def run(state: GraphState) -> dict:
             guidance=guidance,
             delta=delta,
             signals=signals,
-            composite_scores=normalized_scores,
             narrative=narrative,
             expectation_reality=expectation,
-            valuation_linkage=valuation_linkage,
             hidden_gems=hidden_gems,
+            potential_risks=potential_risks,
+            methodology=methodology,
             pipeline_warnings=warnings,
             model_warnings=model_warnings,
             risk_flags=risk_flags,
@@ -549,10 +584,10 @@ async def run(state: GraphState) -> dict:
 
         elapsed = time.perf_counter() - t0
         logger.info(
-            "agent_08_orchestrator DONE | job_id=%s | duration=%.2fs | scores=%s | warnings=%d (model=%d, risk=%d) | gems=%d | valuation=%s",
-            job_id, elapsed, list(composite_scores.keys()), len(warnings),
-            len(model_warnings), len(risk_flags), len(hidden_gems),
-            valuation_linkage is not None,
+            "agent_08_orchestrator DONE | job_id=%s | duration=%.2fs | warnings=%d (model=%d, risk=%d) | methodology=%d | gems=%d | potential_risks=%d",
+            job_id, elapsed, len(warnings),
+            len(model_warnings), len(risk_flags), len(methodology),
+            len(hidden_gems), len(potential_risks),
         )
         return {"report": report, "pipeline_warnings": new_state_warnings}
 
@@ -567,19 +602,6 @@ async def run(state: GraphState) -> dict:
         # We still have upstream agent outputs, so return a usable report
         # instead of failing the whole pipeline in the final step.
         if transcript and sentiment and financials and guidance and market_context and signals:
-            fallback_scores = {
-                key: CompositeScore(
-                    score=5,
-                    key_drivers=["Fallback midpoint due to orchestrator parse failure."],
-                    methodology=ScoreMethodology(
-                        metric=key,
-                        scale="1-10",
-                        inputs=["upstream agent outputs"],
-                        heuristic="Default midpoint assigned when orchestrator output was invalid JSON.",
-                    ),
-                )
-                for key in ["sentiment", "financials", "guidance", "risk", "momentum"]
-            }
             fallback_narrative = [
                 NarrativeSection(
                     section="what_changed",
@@ -596,6 +618,16 @@ async def run(state: GraphState) -> dict:
                 warnings,
                 {"model_warnings": warnings, "risk_flags": []},
             )
+            methodology = _build_methodology(
+                sentiment=sentiment,
+                delta=delta,
+                signals=signals,
+                guidance=guidance,
+                market_context=market_context,
+                lseg_data=lseg_data,
+                expectation=expectation,
+                pipeline_warnings=warnings,
+            )
             report = AnalysisReport(
                 job_id=job_id,
                 created_at=datetime.now(timezone.utc).isoformat(),
@@ -607,11 +639,11 @@ async def run(state: GraphState) -> dict:
                 guidance=guidance,
                 delta=delta,
                 signals=signals,
-                composite_scores=fallback_scores,
                 narrative=fallback_narrative,
                 expectation_reality=expectation,
-                valuation_linkage=None,
                 hidden_gems=[],
+                potential_risks=[],
+                methodology=methodology,
                 pipeline_warnings=warnings,
                 model_warnings=model_warnings,
                 risk_flags=risk_flags,

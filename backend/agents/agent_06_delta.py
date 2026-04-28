@@ -8,6 +8,10 @@ import time
 from typing import Optional
 
 from backend.agents.base import BaseAgent
+from backend.agents._citation_sanitize import (
+    build_utterance_lookup,
+    sanitize_citation_list,
+)
 from backend.schemas.delta import (
     ComparisonWindow,
     LanguageDrift,
@@ -64,6 +68,95 @@ _RISK_TERMS = (
     "regulatory", "china", "competition", "margin", "inventory", "demand",
     "supply", "delay", "uncertain", "litigation", "concentration",
 )
+
+
+def _sanitize_pairwise_payload(
+    data: dict,
+    current_utterances: list[dict],
+) -> tuple[dict, list[str]]:
+    """Repair common LLM schema misses before strict Pydantic validation.
+
+    The Gemini pairwise pass routinely drops `utterance_index` and `quote`
+    on `supporting_citations[]`. Rather than fail the whole node, we recover
+    the index by string-matching the quote against the current transcript
+    utterances (see `_citation_sanitize.sanitize_citation_list`). Citations
+    that lack BOTH a quote and a recoverable index are dropped, and the
+    drop count is surfaced as a `pipeline_warning` so the Methodology
+    drawer's caveats section flags the missing evidence.
+    """
+    warnings: list[str] = []
+    lookup = build_utterance_lookup(current_utterances)
+    total_dropped = 0
+
+    topic_rows = []
+    for i, row in enumerate((data.get("topic_deltas") or [])[:30]):
+        if not isinstance(row, dict):
+            continue
+        cleaned_citations, dropped = sanitize_citation_list(
+            (row.get("supporting_citations") or [])[:3],
+            lookup,
+            section_hint="Presentation",
+        )
+        if dropped > 0:
+            total_dropped += dropped
+            warnings.append(
+                f"Delta: dropped {dropped} unrecoverable citation(s) from topic_deltas[{i}] "
+                "(missing both utterance_index and locatable quote)."
+            )
+        topic_rows.append(
+            {
+                "topic": str(row.get("topic") or "Unknown topic"),
+                "novelty_status": str(row.get("novelty_status") or "repeated"),
+                "sentiment_delta": float(row.get("sentiment_delta") or 0.0),
+                "supporting_citations": cleaned_citations,
+            }
+        )
+
+    signal_rows = []
+    for row in (data.get("signal_novelty") or [])[:30]:
+        if not isinstance(row, dict):
+            continue
+        signal_rows.append(
+            {
+                "signal_id": str(row.get("signal_id") or "unknown_signal"),
+                "novelty_status": str(row.get("novelty_status") or "repeated"),
+                "rationale": str(row.get("rationale") or ""),
+            }
+        )
+
+    language = data.get("language_drift") or {}
+    if not isinstance(language, dict):
+        language = {}
+
+    try:
+        guidance_delta = int(data.get("guidance_specificity_delta", 0))
+    except Exception:
+        guidance_delta = 0
+    try:
+        confidence = float(data.get("confidence", 0.6))
+    except Exception:
+        confidence = 0.6
+
+    if total_dropped > 0:
+        logger.info(
+            "agent_06_delta | pairwise sanitized | total_dropped=%d | rebuilt_indexes_via_match=%s",
+            total_dropped, "yes" if lookup else "no",
+        )
+
+    return {
+        "prior_event_date": str(data.get("prior_event_date") or ""),
+        "topic_deltas": topic_rows,
+        "signal_novelty": signal_rows,
+        "new_risk_keywords": [str(x) for x in (data.get("new_risk_keywords") or [])[:20]],
+        "guidance_specificity_delta": max(-2, min(2, guidance_delta)),
+        "language_drift": {
+            "added_phrases": [str(x) for x in (language.get("added_phrases") or [])[:20]],
+            "removed_phrases": [str(x) for x in (language.get("removed_phrases") or [])[:20]],
+            "hedging_drift": float(language.get("hedging_drift") or 0.0),
+            "certainty_drift": float(language.get("certainty_drift") or 0.0),
+        },
+        "confidence": max(0.0, min(1.0, confidence)),
+    }, warnings
 
 
 def _hedge_count(text: str) -> int:
@@ -328,7 +421,39 @@ async def run(state: GraphState) -> dict:
                 sentiment_json=json.dumps(sentiment.model_dump(), indent=2) if sentiment else "null",
             )
             data = await _pairwise_agent.call(system, user, provider, model)
-            parsed = await _pairwise_agent.parse_output(data)
+
+            # Always sanitize citations BEFORE strict validation. Earlier the
+            # agent only fell back to coercion when parse_output raised, but
+            # the fallback set utterance_index=0 and quote="" which produced
+            # phantom citations pointing to utterance #0. The shared
+            # `_citation_sanitize` helper now recovers the index by matching
+            # the quote against the actual transcript utterances and drops
+            # truly unsalvageable citations with a pipeline_warning.
+            sanitized, sanitize_warnings = _sanitize_pairwise_payload(data, current_utterances)
+            new_warnings.extend(sanitize_warnings)
+            try:
+                parsed = PairwiseDelta.model_validate(sanitized)
+            except Exception:
+                logger.warning(
+                    "pairwise validation failed even after citation sanitize | prior_event_date=%s",
+                    prior.metadata.event_date,
+                    exc_info=True,
+                )
+                # Build a degraded-but-valid PairwiseDelta so a single bad
+                # quarter doesn't block the rest of the dashboard.
+                parsed = PairwiseDelta(
+                    prior_event_date=prior.metadata.event_date,
+                    topic_deltas=[],
+                    signal_novelty=[],
+                    new_risk_keywords=_risk_keyword_diff(current_text, prior.presentation_text or ""),
+                    guidance_specificity_delta=0,
+                    language_drift=_deterministic_language_drift(current_text, prior.presentation_text or ""),
+                    confidence=0.4,
+                )
+                new_warnings.append(
+                    f"Delta: pairwise validation failed for {prior.metadata.event_date}; "
+                    "rendered language drift only."
+                )
             deterministic = _deterministic_language_drift(
                 current_text,
                 prior.presentation_text or "",

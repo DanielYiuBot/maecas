@@ -8,6 +8,7 @@ HorizonLiteral = Literal["0-3m", "3-6m", "6-12m", "12m+"]
 PricedInLiteral = Literal["priced_in", "partially_priced", "not_priced", "unknown"]
 PnlLinkageLiteral = Literal["revenue", "margin", "multiple", "capex", "mix"]
 PriorityTierLiteral = Literal["primary", "secondary", "noise"]
+SourceTag = Literal["LSEG", "Transcript", "Synthesis"]
 
 
 class Signal(BaseModel):
@@ -28,6 +29,16 @@ class Signal(BaseModel):
     pnl_linkage: PnlLinkageLiteral = "revenue"
     priced_in_assessment: PricedInLiteral = "unknown"
 
+    source: SourceTag = Field(
+        default="Synthesis",
+        description=(
+            "Where the signal's evidence comes from. LSEG = grounded in "
+            "objective market data; Transcript = stated by management with a "
+            "citation; Synthesis = LLM inference combining the two. The UI "
+            "renders this as a small color tag next to the signal."
+        ),
+    )
+
     @property
     def consensus_aware(self) -> bool:
         """Back-compat shim: `true` when the market has digested this signal."""
@@ -35,13 +46,16 @@ class Signal(BaseModel):
 
 
 class CoreThesis(BaseModel):
-    """Single canonical decision answer rendered at the top of the dashboard."""
+    """Single canonical decision answer rendered at the top of the dashboard.
+
+    `conviction` was removed in the 2026 revamp: it was an LLM self-confidence
+    label, not a market signal, so it no longer belongs on the decision surface.
+    """
 
     one_liner: str = Field(..., description="One sentence that captures the thesis.")
     bull_case: str
     bear_case: str
     decision: Literal["Buy", "Monitor", "Avoid"]
-    conviction: Literal["High", "Medium", "Low"]
     time_horizon: HorizonLiteral
     key_driver_signal_id: str = Field(..., description="signal_id of the primary bullish signal anchoring the thesis")
     key_risk_signal_id: str = Field(..., description="signal_id of the primary bearish signal anchoring the thesis")

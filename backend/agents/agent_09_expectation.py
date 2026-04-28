@@ -26,44 +26,6 @@ class ExpectationAgent(BaseAgent):
 _agent = ExpectationAgent()
 
 
-def _normalize_expectation(expectation: ExpectationReality) -> ExpectationReality:
-    """Keep legacy string arrays and newer per-bullet evidence fields in sync."""
-    if not expectation.what_changed and expectation.what_changed_items:
-        expectation.what_changed = [item.text for item in expectation.what_changed_items]
-    if not expectation.what_market_is_missing and expectation.what_market_is_missing_items:
-        expectation.what_market_is_missing = [
-            item.text for item in expectation.what_market_is_missing_items
-        ]
-
-    if not expectation.citations:
-        seen: set[tuple[str, str, int, str]] = set()
-        paired_citations = []
-        for item in (
-            expectation.what_changed_items
-            + expectation.what_market_is_missing_items
-        ):
-            for citation in item.citations:
-                key = (
-                    citation.speaker,
-                    citation.section,
-                    citation.utterance_index,
-                    citation.quote,
-                )
-                if key in seen:
-                    continue
-                seen.add(key)
-                paired_citations.append(citation)
-        expectation.citations = paired_citations
-
-    if not expectation.market_expected_sources:
-        expectation.market_expected_sources = [
-            "LSEG FY1 consensus",
-            "stated financials",
-            "market context and beat/miss flags",
-        ]
-    return expectation
-
-
 async def run(state: GraphState) -> dict:
     t0 = time.perf_counter()
     job_id = state.get("job_id", "unknown")
@@ -112,7 +74,6 @@ async def run(state: GraphState) -> dict:
 
         data = await _agent.call(system, user, provider, model)
         expectation = await _agent.parse_output(data)
-        expectation = _normalize_expectation(expectation)
 
         if progress:
             await progress(stage="agents", agent="expectation", status="complete", progress_pct=68, message="Expectation synthesis complete.")
@@ -120,7 +81,7 @@ async def run(state: GraphState) -> dict:
         elapsed = time.perf_counter() - t0
         logger.info(
             "agent_09_expectation DONE | job_id=%s | duration=%.2fs | delta=%s | what_changed=%d",
-            job_id, elapsed, expectation.delta_magnitude, len(expectation.what_changed),
+            job_id, elapsed, expectation.delta_magnitude, len(expectation.what_changed_items),
         )
         return {"expectation_reality": expectation, "pipeline_warnings": new_warnings}
 

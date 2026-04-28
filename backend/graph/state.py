@@ -9,7 +9,7 @@ from backend.schemas.guidance import GuidanceCatalysts
 from backend.schemas.delta import QoQDelta
 from backend.schemas.signals import TradingSignals
 from backend.schemas.report import AnalysisReport
-from backend.schemas.expectation import ExpectationReality, ValuationLinkage
+from backend.schemas.expectation import ExpectationReality
 
 
 class GraphState(TypedDict):
@@ -32,6 +32,5 @@ class GraphState(TypedDict):
     delta: Optional[QoQDelta]
     signals: Optional[TradingSignals]
     expectation_reality: Optional[ExpectationReality]
-    valuation_linkage: Optional[ValuationLinkage]
     report: Optional[AnalysisReport]
     pipeline_warnings: Annotated[list[str], operator.add]

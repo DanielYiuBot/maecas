@@ -157,6 +157,22 @@ export function isMeaningfulScoreShift(diff: number | null | undefined, threshol
   return Math.abs(diff) >= threshold
 }
 
+/** Map a `time_horizon` string ("0-3m", "3-6m", "6-12m", "12m+") to the
+ * canonical Short / Medium / Long bucket used on the dashboard surface. */
+export function horizonToOrdinal(value: string | null | undefined): 'Short' | 'Medium' | 'Long' | 'Unknown' {
+  switch (value) {
+    case '0-3m':
+      return 'Short'
+    case '3-6m':
+    case '6-12m':
+      return 'Medium'
+    case '12m+':
+      return 'Long'
+    default:
+      return 'Unknown'
+  }
+}
+
 /** Render-only icon for a noise-floor-aware "vs prior" arrow on 1-10 scores. Returns null when within noise. */
 export function ScoreShiftArrow({ diff }: { diff: number | null | undefined }) {
   if (!isMeaningfulScoreShift(diff)) {

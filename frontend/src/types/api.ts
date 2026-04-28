@@ -334,6 +334,8 @@ export type TimeHorizon = '0-3m' | '3-6m' | '6-12m' | '12m+'
 export type PricedInAssessment = 'priced_in' | 'partially_priced' | 'not_priced' | 'unknown'
 export type PnlLinkage = 'revenue' | 'margin' | 'multiple' | 'capex' | 'mix'
 export type PriorityTier = 'primary' | 'secondary' | 'noise'
+export type SourceTag = 'LSEG' | 'Transcript' | 'Synthesis'
+export type PanelKey = 'decision' | 'summary' | 'lseg' | 'sentiment' | 'qoq' | 'guidance'
 
 export interface Signal {
   signal_id: string
@@ -351,6 +353,7 @@ export interface Signal {
   time_horizon: TimeHorizon
   pnl_linkage: PnlLinkage
   priced_in_assessment: PricedInAssessment
+  source?: SourceTag
   consensus_aware?: boolean
 }
 
@@ -359,11 +362,12 @@ export interface CoreThesis {
   bull_case: string
   bear_case: string
   decision: 'Buy' | 'Monitor' | 'Avoid'
-  conviction: 'High' | 'Medium' | 'Low'
   time_horizon: TimeHorizon
   key_driver_signal_id: string
   key_risk_signal_id: string
   what_would_change_this: string[]
+  /** Removed from dashboard surface in 2026 revamp; some legacy traces may still emit it. */
+  conviction?: 'High' | 'Medium' | 'Low'
 }
 
 export interface TradingSignals {
@@ -382,6 +386,7 @@ export interface NarrativeClaim {
   text: string
   claim_type: 'fact' | 'inference' | 'speculation'
   numeric_anchor: string | null
+  source?: SourceTag
   supporting_citations: EvidenceCitation[]
 }
 
@@ -391,56 +396,39 @@ export interface NarrativeSection {
   claims: NarrativeClaim[]
 }
 
-export interface CompositeScore {
-  score: number
-  key_drivers: string[]
-  methodology: ScoreMethodology
-  prior_score: number | null
-}
-
 export type DeltaMagnitude = 'minor' | 'material' | 'inflection'
 
 export interface ExpectationBullet {
   text: string
+  source?: SourceTag
   citations: EvidenceCitation[]
 }
 
 export interface ExpectationReality {
-  pre_call_market_narrative: string
-  market_expected_sources?: string[]
   pre_call_consensus_snapshot: Record<string, number | null>
-  what_changed: string[]
-  what_market_is_missing: string[]
   what_changed_items?: ExpectationBullet[]
-  what_market_is_missing_items?: ExpectationBullet[]
   delta_magnitude: DeltaMagnitude
-  citations: EvidenceCitation[]
   methodology: ScoreMethodology | null
+  /** Removed in 2026 revamp; legacy traces may still emit these. */
+  pre_call_market_narrative?: string
+  market_expected_sources?: string[]
+  what_changed?: string[]
+  what_market_is_missing?: string[]
+  what_market_is_missing_items?: ExpectationBullet[]
+  citations?: EvidenceCitation[]
 }
 
-export interface ValuationSensitivityRow {
-  scenario: 'bull' | 'base' | 'bear'
-  rev_delta_pct: number | null
-  eps_delta_pct: number | null
-  commentary: string
-}
-
-export interface ValuationLinkage {
-  fy1_consensus_eps: number | null
-  fy1_consensus_revenue: number | null
-  fy1_consensus_ebitda: number | null
-  implied_revenue_upside_pct: number | null
-  implied_eps_upside_pct: number | null
-  multiple_justification: string
-  sensitivity: ValuationSensitivityRow[]
-  methodology: ScoreMethodology | null
-}
-
-export interface HiddenGem {
-  statement: string
-  why_it_matters: string
-  mention_count: number
-  citations: EvidenceCitation[]
+export interface MethodologyEntry {
+  panel: PanelKey
+  score_or_bucket: string
+  inputs: string[]
+  produced_by: string
+  is_llm: boolean
+  prompt_summary: string
+  bucket_cutoffs: string | null
+  source: SourceTag
+  raw_score: number | null
+  caveats: string[]
 }
 
 export interface AnalysisReport {
@@ -454,15 +442,32 @@ export interface AnalysisReport {
   guidance: GuidanceCatalysts
   delta: QoQDelta | null
   signals: TradingSignals
-  composite_scores: Record<string, CompositeScore>
   narrative: NarrativeSection[]
   expectation_reality: ExpectationReality | null
-  valuation_linkage: ValuationLinkage | null
-  hidden_gems: HiddenGem[]
+  hidden_gems?: HiddenGem[]
+  potential_risks?: PotentialRisk[]
+  methodology?: MethodologyEntry[]
   pipeline_warnings: string[]
   model_warnings: string[]
   risk_flags: string[]
   transcript_utterances: Utterance[]
+  /** Legacy fields (removed in 2026 revamp) — kept optional so stored jobs still type-check. */
+  composite_scores?: Record<string, unknown>
+  valuation_linkage?: unknown
+}
+
+export interface HiddenGem {
+  statement: string
+  why_it_matters: string
+  mention_count: number
+  citations: EvidenceCitation[]
+}
+
+export interface PotentialRisk {
+  risk: string
+  why_it_matters: string
+  severity: 'low' | 'medium' | 'high'
+  citations: EvidenceCitation[]
 }
 
 export interface SSEEvent {

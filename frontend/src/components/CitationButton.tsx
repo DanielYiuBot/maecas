@@ -6,9 +6,10 @@ interface Props {
   citation: EvidenceCitation
   compact?: boolean
   className?: string
+  label?: string
 }
 
-export function CitationButton({ citation, compact = false, className = '' }: Props) {
+export function CitationButton({ citation, compact = false, className = '', label }: Props) {
   const { openCitation } = useTranscript()
 
   return (
@@ -20,6 +21,7 @@ export function CitationButton({ citation, compact = false, className = '' }: Pr
     >
       <Quote className="mt-0.5 h-3 w-3 shrink-0 text-text-muted" />
       <span className={compact ? 'line-clamp-1' : 'line-clamp-2'}>
+        {label && <span className="mr-1 font-semibold uppercase tracking-wide text-[10px] text-accent-700">{label}</span>}
         <span className="font-medium text-text-primary">{citation.speaker}</span>
         <span className="text-text-muted"> · {citation.section} #{citation.utterance_index}</span>
         {!compact && (

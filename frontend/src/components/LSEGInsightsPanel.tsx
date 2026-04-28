@@ -8,19 +8,13 @@ import type {
   EstimatesSurpriseFY0,
   LSEGMarketData,
   MetricSurpriseSnapshot,
+  StatedFigure,
 } from '../types/api'
 import { chartTheme } from '../lib/chartTheme'
-import { MethodologyTip } from './MethodologyTip'
+import { MethodChip } from './MethodChip'
+import { SourceTag } from './SourceTag'
 
-type Props = Pick<AnalysisReport, 'lseg_data' | 'market' | 'metadata'>
-
-const BLOCK_LABELS: Record<string, string> = {
-  price: 'Price window',
-  fundamentals: 'Fundamentals',
-  consensus: 'Consensus (event-aligned)',
-  estimates_surprise_fy0: 'Estimates vs actual (FY0)',
-  instrument_display: 'Instrument metadata',
-}
+type Props = Pick<AnalysisReport, 'lseg_data' | 'market' | 'metadata' | 'financials'>
 
 function fmtNum(n: number | null | undefined, digits = 2): string {
   if (n === null || n === undefined || Number.isNaN(n)) return '—'
@@ -68,100 +62,176 @@ function interpretSue(s: number | null | undefined): string {
   return 'large surprise'
 }
 
-function SurpriseTable({ title, snap }: { title: string; snap: MetricSurpriseSnapshot | null }) {
-  if (!surpriseHasData(snap)) return null
-  const sueValue = snap!.sue_score
-  const sueDisplay = sueValue != null
-    ? `${fmtNum(sueValue, 2)} — ${interpretSue(sueValue)}`
-    : '—'
-  const rows: { label: string; value: string; tip?: ReactNode }[] = [
-    { label: 'Actual', value: fmtNum(snap!.actual, 4) },
-    { label: 'Mean est.', value: fmtNum(snap!.mean_estimate, 4) },
-    { label: 'Surprise %', value: fmtPct(snap!.surprise_pct) },
-    {
-      label: 'SUE',
-      value: sueDisplay,
-      tip: (
-        <>
-          <strong>Standardized Unexpected Earnings</strong> — surprise normalized by estimate dispersion.
-          {' '}|SUE| &lt; 1 = in line, 1-2 = meaningful, &gt; 2 = large surprise.
-        </>
-      ),
-    },
-    { label: '# est.', value: snap!.num_estimates != null ? String(snap!.num_estimates) : '—' },
-    { label: 'Act. date', value: snap!.act_report_date ?? '—' },
-  ].filter((r) => r.value !== '—')
-
-  if (rows.length === 0) return null
-  return (
-    <div className="rounded-lg border border-border bg-surface-muted/60 p-4">
-      <h5 className="mb-2 text-xs font-semibold uppercase tracking-wide text-text-secondary">{title}</h5>
-      <dl className="grid grid-cols-2 gap-x-3 gap-y-1 text-sm">
-        {rows.map(({ label, value, tip }) => (
-          <div key={label} className="contents">
-            <dt className="flex items-center gap-1 text-text-secondary">
-              {label}
-              {tip && <InfoTip>{tip}</InfoTip>}
-            </dt>
-            <dd className="text-right font-medium text-text-primary tabular-nums">{value}</dd>
-          </div>
-        ))}
-      </dl>
-    </div>
-  )
+interface MergedRow {
+  metric: string
+  actual: number | null
+  consensus: number | null
+  surprisePct: number | null
+  sue: number | null
+  numEst: number | null
+  reportDate: string | null
+  direction: string | null
+  numericFidelity: 'lseg' | 'transcript_vs_lseg'
 }
 
-function consensusHasData(c: ConsensusEstimates | null | undefined): boolean {
-  if (!c) return false
-  return (
-    c.eps_mean != null ||
-    c.revenue_mean != null ||
-    c.ebitda_mean != null ||
-    c.analyst_buy_count != null ||
-    c.analyst_hold_count != null ||
-    c.analyst_sell_count != null
-  )
-}
+function mergeRows(
+  est: EstimatesSurpriseFY0 | null | undefined,
+  consensus: ConsensusEstimates | null | undefined,
+  beatMissFlags: BeatMissFlag[],
+): MergedRow[] {
+  const rows: MergedRow[] = []
+  const seen = new Set<string>()
 
-function ConsensusBlock({ c }: { c: ConsensusEstimates }) {
-  const rows: Array<{ label: string; value: ReactNode }> = []
-  if (c.eps_mean != null) rows.push({ label: 'EPS mean', value: fmtNum(c.eps_mean, 4) })
-  if (c.revenue_mean != null) rows.push({ label: 'Revenue mean', value: fmtNum(c.revenue_mean, 0) })
-  if (c.ebitda_mean != null) rows.push({ label: 'EBITDA mean', value: fmtNum(c.ebitda_mean, 0) })
-
-  const hasRecs =
-    c.analyst_buy_count != null || c.analyst_hold_count != null || c.analyst_sell_count != null
-  if (hasRecs) {
+  // Anchor on LSEG-reported actuals (estimates_surprise_fy0) for EPS/Revenue.
+  if (est?.eps && surpriseHasData(est.eps)) {
     rows.push({
-      label: 'Analyst recs',
-      value: (
-        <span className="font-mono tabular-nums">
-          <span className="text-bull-700">{c.analyst_buy_count ?? '—'}</span>
-          {' / '}
-          <span className="text-warn-900">{c.analyst_hold_count ?? '—'}</span>
-          {' / '}
-          <span className="text-bear-700">{c.analyst_sell_count ?? '—'}</span>
-          <span className="ml-1 text-[11px] font-normal text-text-muted">(buy/hold/sell)</span>
-        </span>
-      ),
+      metric: 'EPS',
+      actual: est.eps.actual ?? null,
+      consensus: est.eps.mean_estimate ?? consensus?.eps_mean ?? null,
+      surprisePct: est.eps.surprise_pct ?? null,
+      sue: est.eps.sue_score ?? null,
+      numEst: est.eps.num_estimates ?? null,
+      reportDate: est.eps.act_report_date ?? null,
+      direction: null,
+      numericFidelity: 'lseg',
+    })
+    seen.add('eps')
+  }
+  if (est?.revenue && surpriseHasData(est.revenue)) {
+    rows.push({
+      metric: 'Revenue',
+      actual: est.revenue.actual ?? null,
+      consensus: est.revenue.mean_estimate ?? consensus?.revenue_mean ?? null,
+      surprisePct: est.revenue.surprise_pct ?? null,
+      sue: est.revenue.sue_score ?? null,
+      numEst: est.revenue.num_estimates ?? null,
+      reportDate: est.revenue.act_report_date ?? null,
+      direction: null,
+      numericFidelity: 'lseg',
+    })
+    seen.add('revenue')
+  }
+
+  // EBITDA only appears in consensus (no event-aligned actual). Add a row when we have a consensus mean.
+  if (consensus?.ebitda_mean != null && !seen.has('ebitda')) {
+    rows.push({
+      metric: 'EBITDA',
+      actual: null,
+      consensus: consensus.ebitda_mean,
+      surprisePct: null,
+      sue: null,
+      numEst: null,
+      reportDate: null,
+      direction: null,
+      numericFidelity: 'lseg',
+    })
+    seen.add('ebitda')
+  }
+
+  // Anything else from beat_miss_flags (e.g. Net Bookings, FY guidance) that
+  // doesn't already have an LSEG-anchored row above.
+  for (const f of beatMissFlags) {
+    const key = (f.metric || '').trim().toLowerCase()
+    if (!key) continue
+    if (key.includes('eps') && seen.has('eps')) continue
+    if ((key.includes('revenue') || key.includes('sales')) && seen.has('revenue')) continue
+    if (key.includes('ebitda') && seen.has('ebitda')) continue
+    rows.push({
+      metric: f.metric,
+      actual: f.stated_value ?? null,
+      consensus: f.consensus_value ?? null,
+      surprisePct: f.surprise_pct ?? null,
+      sue: null,
+      numEst: null,
+      reportDate: null,
+      direction: f.direction ?? null,
+      numericFidelity: 'transcript_vs_lseg',
     })
   }
 
-  if (rows.length === 0) return null
+  return rows
+}
 
+function ActualVsConsensusBlock({
+  rows,
+  recs,
+}: {
+  rows: MergedRow[]
+  recs: { buy: number | null; hold: number | null; sell: number | null } | null
+}) {
+  if (rows.length === 0 && !recs) return null
   return (
-    <div className="rounded-lg border border-border p-4">
-      <h5 className="mb-3 text-xs font-semibold uppercase tracking-wide text-text-secondary">
-        Consensus (event-aligned period)
-      </h5>
-      <dl className="grid grid-cols-2 gap-x-3 gap-y-2 text-sm">
-        {rows.map((row) => (
-          <div key={row.label} className="contents">
-            <dt className="text-text-secondary">{row.label}</dt>
-            <dd className="text-right font-medium tabular-nums">{row.value}</dd>
-          </div>
-        ))}
-      </dl>
+    <div className="rounded-lg border border-border bg-surface-card p-4">
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <h4 className="text-sm font-medium text-text-secondary">Actual vs consensus (closest to event date)</h4>
+        <SourceTag source="LSEG" lsegKind="surprise" />
+      </div>
+
+      {rows.length > 0 && (
+        <div className="overflow-x-auto rounded-lg border border-border">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-surface-muted text-left text-xs uppercase tracking-wide text-text-secondary">
+                <th className="px-3 py-2">Metric</th>
+                <th className="px-3 py-2 text-right">Actual</th>
+                <th className="px-3 py-2 text-right">Mean est.</th>
+                <th className="px-3 py-2 text-right">Surprise %</th>
+                <th className="px-3 py-2">
+                  <span className="inline-flex items-center gap-1">
+                    SUE
+                    <InfoTip>
+                      <strong>Standardized Unexpected Earnings</strong> — surprise normalized by estimate dispersion. |SUE| &lt; 1 = in line, 1-2 = meaningful, &gt; 2 = large surprise.
+                    </InfoTip>
+                  </span>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row, i) => {
+                const sueDisplay =
+                  row.sue != null ? `${fmtNum(row.sue, 2)} — ${interpretSue(row.sue)}` : '—'
+                const tone =
+                  row.surprisePct == null
+                    ? 'text-text-secondary'
+                    : row.surprisePct > 0
+                      ? 'text-bull-700'
+                      : row.surprisePct < 0
+                        ? 'text-bear-700'
+                        : 'text-text-secondary'
+                return (
+                  <tr key={`${row.metric}-${i}`} className="border-t border-border">
+                    <td className="px-3 py-2 font-medium text-text-primary">
+                      {row.metric}
+                      {row.direction && (
+                        <span className={`ml-2 text-[10px] uppercase tracking-wide ${tone}`}>{row.direction}</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums">{fmtNum(row.actual, 4)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{fmtNum(row.consensus, 4)}</td>
+                    <td className={`px-3 py-2 text-right tabular-nums font-medium ${tone}`}>{fmtPct(row.surprisePct)}</td>
+                    <td className="px-3 py-2 tabular-nums">{sueDisplay}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {recs && (
+        <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-text-secondary">
+          <span className="font-semibold text-text-primary">Analyst recs:</span>
+          <span className="font-mono tabular-nums">
+            <span className="text-bull-700">{recs.buy ?? '—'}</span>
+            {' / '}
+            <span className="text-warn-900">{recs.hold ?? '—'}</span>
+            {' / '}
+            <span className="text-bear-700">{recs.sell ?? '—'}</span>
+            <span className="ml-1 text-[11px] font-normal text-text-muted">(buy / hold / sell)</span>
+          </span>
+        </div>
+      )}
+
     </div>
   )
 }
@@ -195,29 +265,23 @@ function RevenueSparkline({ fundamentals }: { fundamentals: Record<string, unkno
     return { label, value: p.v }
   })
 
-  // The previous "+1195% across shown" headline was a function of how many
-  // periods were available, not a meaningful growth rate. Dropped per trader
-  // critique. Now the chart speaks for itself with proper Y-axis ticks.
   return (
     <div className="rounded-lg border border-border p-3">
-      <div className="mb-1 flex items-baseline justify-between">
+      <div className="mb-1 flex items-center justify-between gap-2">
         <span className="text-xs font-semibold uppercase tracking-wide text-text-secondary">
           {formatLsegFieldName(revenueKey)} — last {total} reported periods
         </span>
+        <SourceTag source="LSEG" lsegKind="fundamentals" />
       </div>
       <p className="mb-2 text-[11px] text-text-muted">
-        T-minus labels are relative periods: for example, T-4 means 4 reported periods before the latest available period.
+        T-minus labels are relative periods: T-4 means 4 reported periods before the latest available period.
       </p>
       <div className="h-32">
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={data} margin={{ top: 4, right: 4, left: 8, bottom: 4 }}>
             <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.grid} />
             <XAxis dataKey="label" tick={{ fontSize: 10, fill: chartTheme.axis }} />
-            <YAxis
-              tick={{ fontSize: 10, fill: chartTheme.axis }}
-              tickFormatter={(v: number) => fmtNum(v, 0)}
-              width={48}
-            />
+            <YAxis tick={{ fontSize: 10, fill: chartTheme.axis }} tickFormatter={(v: number) => fmtNum(v, 0)} width={48} />
             <Line type="monotone" dataKey="value" stroke={chartTheme.accent} strokeWidth={2} dot={{ r: 2 }} />
             <ReTooltip
               contentStyle={{ background: chartTheme.tooltipBg, borderColor: chartTheme.tooltipBorder }}
@@ -230,77 +294,48 @@ function RevenueSparkline({ fundamentals }: { fundamentals: Record<string, unkno
   )
 }
 
-function BeatMissTable({ flags }: { flags: BeatMissFlag[] }) {
-  if (flags.length === 0) return null
+function StatedFiguresTable({ figures }: { figures: StatedFigure[] }) {
+  if (figures.length === 0) return null
   return (
-    <div className="overflow-x-auto rounded-lg border border-border">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="bg-surface-muted text-left text-xs uppercase tracking-wide text-text-secondary">
-            <th className="px-3 py-2">Metric</th>
-            <th className="px-3 py-2 text-right">Stated</th>
-            <th className="px-3 py-2 text-right">Consensus</th>
-            <th className="px-3 py-2 text-right">Surprise %</th>
-            <th className="px-3 py-2">Direction</th>
-          </tr>
-        </thead>
-        <tbody>
-          {flags.map((row, i) => (
-            <tr key={`${row.metric}-${i}`} className="border-t border-border">
-              <td className="px-3 py-2 font-medium text-text-primary">{row.metric}</td>
-              <td className="px-3 py-2 text-right tabular-nums">{fmtNum(row.stated_value, 4)}</td>
-              <td className="px-3 py-2 text-right tabular-nums">{fmtNum(row.consensus_value, 4)}</td>
-              <td className="px-3 py-2 text-right tabular-nums">{fmtPct(row.surprise_pct)}</td>
-              <td className="px-3 py-2">
-                {row.direction ? (
-                  <span
-                    className={
-                      row.direction === 'beat'
-                        ? 'text-bull-700'
-                        : row.direction === 'miss'
-                          ? 'text-bear-700'
-                          : 'text-text-secondary'
-                    }
-                  >
-                    {row.direction}
-                  </span>
-                ) : (
-                  '—'
-                )}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+    <div className="rounded-lg border border-border bg-surface-card p-3">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <h4 className="text-sm font-medium text-text-secondary">Stated figures from the call</h4>
+        <SourceTag source="Transcript" />
+      </div>
+      <div className="space-y-1.5">
+        {figures.slice(0, 8).map((f, i) => (
+          <div key={i} className="flex items-baseline justify-between gap-3 border-b border-border pb-1.5 text-sm last:border-b-0">
+            <span className="text-text-secondary">{f.label}</span>
+            <span className="font-mono font-medium text-text-primary tabular-nums">
+              {f.value !== null ? `${f.value} ${f.unit}` : 'N/A'}
+              {f.yoy_change !== null && f.yoy_change !== undefined && (
+                <span className={`ml-2 text-xs ${f.yoy_change >= 0 ? 'text-bull-700' : 'text-bear-700'}`}>
+                  {f.yoy_change >= 0 ? '+' : ''}
+                  {(f.yoy_change * 100).toFixed(1)}%
+                </span>
+              )}
+            </span>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
 
-function CoverageBlocks({ blocks }: { blocks: Record<string, boolean> | null | undefined }) {
-  if (!blocks) return null
-  return (
-    <div className="flex flex-wrap gap-2">
-      {Object.entries(blocks).map(([key, ok]) => (
-        <span
-          key={key}
-          className={`rounded-full px-2.5 py-1 text-xs font-medium ${
-            ok
-              ? 'border border-bull-100 bg-bull-50 text-bull-900'
-              : 'border border-ink-200 bg-ink-100 text-text-muted'
-          }`}
-        >
-          {BLOCK_LABELS[key] ?? key}
-          {ok ? '' : ' · empty'}
-        </span>
-      ))}
-    </div>
-  )
-}
-
-export function LSEGInsightsPanel({ lseg_data, market, metadata }: Props) {
+/**
+ * LSEG & Financials — single panel.
+ *
+ * Restructured per user feedback:
+ *   - Coverage pills (price window / instrument metadata / fundamentals) removed.
+ *   - The standalone Consensus block and the "Stated results vs market"
+ *     beat-miss table merged into one "Actual vs consensus" block, since
+ *     they were duplicating EPS/Revenue between them. Analyst recs and
+ *     EBITDA-only consensus rows are folded in.
+ *   - Stated figures from the call still render on the right (Transcript-tagged).
+ *   - Computed ratios (when present) keep their own sub-block. */
+export function LSEGInsightsPanel({ lseg_data, market, metadata, financials }: Props) {
   const lseg: LSEGMarketData | null = lseg_data
   const est: EstimatesSurpriseFY0 | null | undefined = lseg?.estimates_surprise_fy0
-  const hasEventEstimateCards = surpriseHasData(est?.eps ?? null) || surpriseHasData(est?.revenue ?? null)
 
   const instrumentLine = (() => {
     const parts: string[] = []
@@ -312,29 +347,25 @@ export function LSEGInsightsPanel({ lseg_data, market, metadata }: Props) {
     return parts.join(' · ') || 'Instrument not resolved'
   })()
 
-  // The trader called "Context confidence 92%" a meaningless authoritative number.
-  // Replace it with a concrete "X of Y blocks empty" chip that only appears when
-  // there's an actual gap to surface; otherwise hide it entirely.
-  const coverageGap = (() => {
-    const blocks = lseg?.lseg_blocks
-    if (!blocks) return null
-    const entries = Object.entries(blocks)
-    if (entries.length === 0) return null
-    const total = entries.length
-    const missing = entries.filter(([, ok]) => !ok).map(([key]) => BLOCK_LABELS[key] ?? key)
-    const empty = missing.length
-    if (empty === 0) return null
-    return { total, empty, missing }
-  })()
+  const recs = lseg?.consensus
+    ? {
+        buy: lseg.consensus.analyst_buy_count ?? null,
+        hold: lseg.consensus.analyst_hold_count ?? null,
+        sell: lseg.consensus.analyst_sell_count ?? null,
+      }
+    : null
+  const recsHasAny = recs && (recs.buy != null || recs.hold != null || recs.sell != null) ? recs : null
+
+  const mergedRows = mergeRows(est, lseg?.consensus, market.beat_miss_flags)
 
   return (
     <div className="maecas-card">
       <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <p className="maecas-eyebrow">Market Data</p>
-          <h3 className="maecas-title">LSEG market data &amp; context</h3>
+          <h3 className="maecas-title">LSEG &amp; Financials</h3>
           <p className="mt-1 text-sm text-text-secondary">
-            Consensus and fundamentals from LSEG plus transcript-vs-market synthesis.
+            One block for actual vs consensus. Stated figures from the call on the right.
           </p>
         </div>
         <div className="flex shrink-0 flex-wrap items-center gap-2">
@@ -345,74 +376,25 @@ export function LSEGInsightsPanel({ lseg_data, market, metadata }: Props) {
           >
             {lseg?.lseg_available ? 'LSEG session active' : 'LSEG unavailable'}
           </span>
-          {coverageGap && (
-            <span
-              className="rounded-full border border-warn-100 bg-warn-50 px-3 py-1 text-xs font-medium text-warn-900"
-              title={`Missing LSEG block${coverageGap.empty === 1 ? '' : 's'}: ${coverageGap.missing.join(', ')}`}
-            >
-              {coverageGap.total - coverageGap.empty} of {coverageGap.total} blocks · {coverageGap.missing.join(', ')} unavailable
-            </span>
-          )}
           {market.low_confidence_flag && (
             <span className="rounded-full border border-warn-100 bg-warn-50 px-3 py-1 text-xs font-medium text-warn-900">
               Low-confidence run
             </span>
           )}
+          <MethodChip panel="lseg" scoreOrBucket="Stated vs consensus (beat/miss flags)" />
         </div>
-      </div>
-      <div className="mb-3">
-        <MethodologyTip width="lg">{market.methodology.heuristic}</MethodologyTip>
       </div>
 
       <p className="mb-4 text-sm text-text-primary">{instrumentLine}</p>
 
-      {lseg?.lseg_blocks && (
-        <div className="mb-6">
-          <h4 className="mb-2 text-sm font-medium text-text-secondary">Data coverage</h4>
-          <CoverageBlocks blocks={lseg.lseg_blocks} />
-        </div>
-      )}
-
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <div className="space-y-6">
-          {consensusHasData(lseg?.consensus) ? (
-            <ConsensusBlock c={lseg!.consensus!} />
-          ) : (
-            <div className="rounded-lg border border-dashed border-warn-100 bg-warn-50/40 p-4 text-sm text-warn-900">
-              <h5 className="mb-1 text-xs font-semibold uppercase tracking-wide text-warn-900">
-                Consensus (FY1 means)
-              </h5>
-              <p>
-                No usable event-aligned consensus means were returned for this request. LSEG may omit
-                estimates for some names or lock them behind a different period.
-              </p>
-            </div>
-          )}
-
-          {hasEventEstimateCards && (
-            <div>
-              <h4 className="mb-2 text-sm font-medium text-text-secondary">
-                Actual vs estimates (closest to event date)
-              </h4>
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <SurpriseTable title="EPS" snap={est?.eps ?? null} />
-                <SurpriseTable title="Revenue" snap={est?.revenue ?? null} />
-              </div>
-            </div>
-          )}
-
+          <ActualVsConsensusBlock rows={mergedRows} recs={recsHasAny} />
           {lseg?.fundamentals && <RevenueSparkline fundamentals={lseg.fundamentals} />}
         </div>
 
         <div className="space-y-6">
-          {market.beat_miss_flags.length > 0 && (
-            <div>
-              <h4 className="mb-2 text-sm font-medium text-text-secondary">
-                Stated results vs market
-              </h4>
-              <BeatMissTable flags={market.beat_miss_flags} />
-            </div>
-          )}
+          {financials && <StatedFiguresTable figures={financials.figures} />}
 
           {market.computed_metrics.length > 0 && (
             <div>
@@ -422,9 +404,7 @@ export function LSEGInsightsPanel({ lseg_data, market, metadata }: Props) {
                   <div key={m.metric} className="rounded border border-border p-2 text-xs">
                     <p className="font-medium text-text-primary">{m.metric}</p>
                     <p className="text-text-muted">{m.formula}</p>
-                    <p className="mt-1 text-text-primary">
-                      {m.value == null ? '—' : `${m.value.toFixed(2)} ${m.unit}`}
-                    </p>
+                    <p className="mt-1 text-text-primary">{m.value == null ? '—' : `${m.value.toFixed(2)} ${m.unit}`}</p>
                   </div>
                 ))}
               </div>

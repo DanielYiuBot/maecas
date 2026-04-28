@@ -74,7 +74,6 @@ async def _run_pipeline(job_id: str, current_xml: str, prior_xmls: list[str] | N
             "delta": None,
             "signals": None,
             "expectation_reality": None,
-            "valuation_linkage": None,
             "report": None,
             "pipeline_warnings": [],
         }

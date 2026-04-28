@@ -27,6 +27,20 @@ system: |
     the stated timeline.
   - evidence_citations with transcript quote.
 
+  CITATION REQUIREMENTS — MANDATORY, NON-NEGOTIABLE:
+  Every citation object inside `implicit_signals[*].evidence_citations` and
+  `catalysts[*].evidence_citations` MUST be exactly:
+    {{"speaker": str, "section": "Presentation" | "QA", "utterance_index": int, "quote": str}}
+  - `utterance_index` is the integer `index` of the utterance in the input
+    transcript that contains the quoted text. Copy the integer EXACTLY from
+    the transcript JSON; do not invent or paraphrase it.
+  - `quote` is a verbatim substring of that utterance's text.
+  - Do NOT use alternative keys like `text`, `snippet`, or `excerpt`.
+  - Do NOT omit `utterance_index` or `quote`. A citation that lacks either
+    field will be DROPPED and will downgrade the run's quality.
+  If you cannot locate a quote in a specific utterance, OMIT the entire
+  catalyst or implicit signal rather than emitting a citationless stub.
+
   OUTPUT SCHEMA: Return ONLY valid JSON matching GuidanceCatalysts.
 
   GuidanceCatalysts schema:

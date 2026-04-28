@@ -1,75 +1,23 @@
-import type { EvasionScore, EvidenceCitation, QuestionQuality, SentimentProfile } from '../types/api'
+import type { EvasionScore, EvidenceCitation, SentimentProfile } from '../types/api'
 import { CitationButton } from './CitationButton'
-import { MethodologyTip } from './MethodologyTip'
-import { ExplainableBadge } from './ExplainableBadge'
-import { ConfidenceBadge, shouldSurfaceConfidence } from '../lib/confidence'
-import {
-  OrdinalChip,
-  ScoreShiftArrow,
-  hedgingToOrdinal,
-  skepticismToOrdinal,
-  toneToOrdinal,
-  type OrdinalResult,
-} from '../lib/ordinal'
+import { MethodChip } from './MethodChip'
+import { SourceTag } from './SourceTag'
+import { ScoreBar } from './ScoreBar'
 
 interface Props {
   sentiment: SentimentProfile
 }
 
-interface OrdinalRowProps {
-  label: string
-  ordinal: OrdinalResult
-  shiftDiff?: number | null
-  citations?: EvidenceCitation[]
+interface Concern {
+  topic: string
+  count: number
+  avgScore: number
 }
 
-function EvidenceRow({ citations }: { citations: EvidenceCitation[] }) {
-  if (citations.length === 0) return null
-  return (
-    <div className="mt-1 flex flex-wrap gap-1.5">
-      {citations.slice(0, 2).map((c, i) => (
-        <CitationButton key={i} citation={c} compact />
-      ))}
-    </div>
-  )
-}
-
-function OrdinalRow({ label, ordinal, shiftDiff, citations = [] }: OrdinalRowProps) {
-  return (
-    <div className="text-sm">
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-text-secondary">{label}</span>
-        <div className="flex items-center gap-2">
-          {shiftDiff !== undefined && shiftDiff !== null && <ScoreShiftArrow diff={shiftDiff} />}
-          <OrdinalChip result={ordinal} size="sm" />
-        </div>
-      </div>
-      <EvidenceRow citations={citations} />
-    </div>
-  )
-}
-
-function QualityChip({ q }: { q: QuestionQuality }) {
-  const map: Record<QuestionQuality, string> = {
-    probing: 'bg-info-100 text-info-900',
-    soft: 'bg-ink-100 text-text-secondary',
-    clarifying: 'bg-bone-200 text-ink-700',
-  }
-  const explanation: Record<QuestionQuality, string> = {
-    probing: 'Analyst question quality: pushes for specifics, challenges assumptions, or asks a sharper follow-up.',
-    soft: 'Analyst question quality: relatively accepting or congratulatory, with limited pushback.',
-    clarifying: 'Analyst question quality: asks for factual clarification rather than challenging the thesis.',
-  }
-  return (
-    <ExplainableBadge className={`px-1.5 py-0.5 text-[10px] ${map[q]}`} explanation={explanation[q]}>
-      {q}
-    </ExplainableBadge>
-  )
-}
-
-function topConcerns(evasion: EvasionScore[]): Array<{ topic: string; count: number; avgScore: number }> {
+function topConcerns(evasion: EvasionScore[]): Concern[] {
   const byTopic = new Map<string, { count: number; total: number }>()
   for (const e of evasion) {
+    if (e.score < 3) continue
     const key = (e.topic || 'unclassified').trim().toLowerCase()
     const prev = byTopic.get(key) ?? { count: 0, total: 0 }
     byTopic.set(key, { count: prev.count + 1, total: prev.total + e.score })
@@ -80,75 +28,78 @@ function topConcerns(evasion: EvasionScore[]): Array<{ topic: string; count: num
     .slice(0, 3)
 }
 
-function EvasionGrid({
-  evasion,
-  citations,
-}: {
-  evasion: EvasionScore[]
-  citations: EvidenceCitation[]
-}) {
-  // Drop score=0 rows entirely (non-evasive answers are noise on this card).
-  // Replace the bold 0-5 badge with a subtle "Evasive" pill that only appears
-  // when the model rated the answer as actually evasive (score >= 3). The
-  // quote and reason carry the actual signal.
-  const visible = evasion.filter((e) => e.score >= 1)
-  if (visible.length === 0) return null
-
-  return (
-    <div className="mt-4">
-      <h4 className="mb-2 text-sm font-medium text-text-secondary">
-        Analyst Q&amp;A — questions where management deflected
-      </h4>
-      <div className="space-y-2">
-        {visible.map((e, i) => {
-          const isEvasive = e.score >= 3
-          const pairedCitations = citations.filter((c) => c.utterance_index === e.utterance_index)
-          return (
-            <div
-              key={i}
-              className={`rounded border p-2 text-xs ${isEvasive ? 'border-bear-100 bg-bear-50/30' : 'border-border'}`}
-            >
-              <div className="mb-0.5 flex flex-wrap items-center gap-1.5">
-                <QualityChip q={e.question_quality} />
-                {isEvasive && (
-                  <ExplainableBadge
-                    className="border-bear-100 bg-bear-50 px-1.5 py-0.5 text-[10px] text-bear-900"
-                    explanation="LLM evasion bucket. This appears when management gave a partial answer, pivoted away from the specific question, or declined to quantify."
-                  >
-                    Evasive answer
-                  </ExplainableBadge>
-                )}
-                {e.topic && (
-                  <ExplainableBadge
-                    className="border-accent-100 bg-accent-50 px-1.5 py-0.5 text-[10px] text-accent-700"
-                    explanation="LLM topic cluster for this analyst question. It groups related Q&A concerns so repeated pressure is easier to spot."
-                  >
-                    {e.topic}
-                  </ExplainableBadge>
-                )}
-                {e.analyst_name && (
-                  <span className="text-[10px] text-text-muted">· {e.analyst_name}</span>
-                )}
-              </div>
-              <p className="line-clamp-2 font-medium text-text-primary">{e.analyst_question}</p>
-              <p className="mt-0.5 text-text-muted">{e.reason}</p>
-              <EvidenceRow citations={pairedCitations} />
-            </div>
-          )
-        })}
-      </div>
-    </div>
-  )
+function pairedCitations(evasion: EvasionScore, qaCitations: EvidenceCitation[]): EvidenceCitation[] {
+  return qaCitations.filter((c) => c.utterance_index === evasion.utterance_index)
 }
 
+function normalizeTopic(topic: string | null | undefined): string {
+  return (topic || 'unclassified').trim().toLowerCase()
+}
+
+function ensureEvasiveCitations(evasion: EvasionScore, qaCitations: EvidenceCitation[]): EvidenceCitation[] {
+  const matched = pairedCitations(evasion, qaCitations)
+  if (matched.length > 0) return matched
+  return [
+    {
+      speaker: evasion.analyst_name || 'Analyst',
+      section: 'QA',
+      utterance_index: evasion.utterance_index,
+      quote: evasion.analyst_question,
+    },
+  ]
+}
+
+function uniqueCitations(citations: EvidenceCitation[]): EvidenceCitation[] {
+  const seen = new Set<string>()
+  const out: EvidenceCitation[] = []
+  for (const c of citations) {
+    const key = `${c.utterance_index}::${c.quote}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(c)
+  }
+  return out
+}
+
+/** Sentiment panel — language and analyst-pressure read.
+ *
+ * Top:    three color ScoreBars for Tone, Hedging, and Evasion (the new
+ *         in-house scorecard style: bar + numeric value + arrow + detail row).
+ * Middle: analyst topic coverage (which themes drew skepticism / evasion).
+ * Bottom: top evasive Q&A list, each row carrying its own citation button
+ *         right beneath the question so users can jump straight into the
+ *         transcript drawer. The redundant Transcript source tag has been
+ *         removed — it was obvious that Q&A live in the transcript.
+ */
 export function SentimentPanel({ sentiment }: Props) {
+  const toneAvg = (sentiment.mgmt_confidence_presentation + sentiment.mgmt_confidence_qa) / 2
+  const tonePrior =
+    sentiment.mgmt_confidence_presentation_baseline?.prior_quarter != null &&
+    sentiment.mgmt_confidence_qa_baseline?.prior_quarter != null
+      ? (sentiment.mgmt_confidence_presentation_baseline.prior_quarter +
+          sentiment.mgmt_confidence_qa_baseline.prior_quarter) /
+        2
+      : null
+
   const concerns = topConcerns(sentiment.evasion_scores)
-  const presentationEvidence = sentiment.evidence_citations.filter((c) =>
-    c.section.toLowerCase().includes('presentation')
-  )
-  const qaEvidence = sentiment.evidence_citations.filter((c) =>
-    c.section.toLowerCase().includes('qa')
-  )
+  const qaEvidence = sentiment.evidence_citations.filter((c) => c.section.toLowerCase().includes('qa'))
+
+  const totalEvasion = sentiment.evasion_scores.length
+  const hotEvasion = sentiment.evasion_scores.filter((e) => e.score >= 3).length
+  const evasionLabel = totalEvasion > 0 ? `${hotEvasion}/${totalEvasion}` : '—'
+
+  const visibleEvasive = sentiment.evasion_scores
+    .filter((e) => e.score >= 3)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 5)
+
+  const topicCoverageCitations = new Map<string, EvidenceCitation[]>()
+  for (const e of sentiment.evasion_scores) {
+    const topic = normalizeTopic(e.topic)
+    const list = topicCoverageCitations.get(topic) ?? []
+    list.push(...ensureEvasiveCitations(e, qaEvidence))
+    topicCoverageCitations.set(topic, uniqueCitations(list))
+  }
 
   return (
     <div className="maecas-card">
@@ -156,50 +107,53 @@ export function SentimentPanel({ sentiment }: Props) {
         <div>
           <p className="maecas-eyebrow">Language</p>
           <h3 className="maecas-title">Sentiment &amp; Analyst Intelligence</h3>
+          <p className="maecas-subtitle mt-0.5">
+            Tone, hedging, and evasion as color-zoned bars. Evasive Q&amp;A appear below, each with quoted evidence actions.
+          </p>
         </div>
-        <ExplainableBadge
-          className="rounded-full border-ink-200 bg-ink-100 px-3 py-1 text-sm text-text-secondary"
-          explanation="LLM register label summarizing the communication style across presentation and Q&A. It is a qualitative read, not a trading recommendation."
-        >
-          {sentiment.register}
-        </ExplainableBadge>
+        <MethodChip panel="sentiment" scoreOrBucket="Tone" />
       </div>
 
-      <div className="grid grid-cols-1 gap-4">
-        <div className="space-y-3">
-          <h4 className="text-sm font-medium text-text-secondary">Presentation</h4>
-          <OrdinalRow
-            label="Management confidence"
-            ordinal={toneToOrdinal(sentiment.mgmt_confidence_presentation)}
-            shiftDiff={
-              sentiment.mgmt_confidence_presentation_baseline?.prior_quarter != null
-                ? sentiment.mgmt_confidence_presentation -
-                  sentiment.mgmt_confidence_presentation_baseline.prior_quarter
-                : null
-            }
-          />
-          <OrdinalRow
-            label="Hedging frequency"
-            ordinal={hedgingToOrdinal(sentiment.hedging_frequency)}
-          />
-        </div>
-        <div className="space-y-3">
-          <h4 className="text-sm font-medium text-text-secondary">Q&amp;A</h4>
-          <OrdinalRow
-            label="Management confidence"
-            ordinal={toneToOrdinal(sentiment.mgmt_confidence_qa)}
-            shiftDiff={
-              sentiment.mgmt_confidence_qa_baseline?.prior_quarter != null
-                ? sentiment.mgmt_confidence_qa -
-                  sentiment.mgmt_confidence_qa_baseline.prior_quarter
-                : null
-            }
-          />
-          <OrdinalRow
-            label="Analyst skepticism"
-            ordinal={skepticismToOrdinal(sentiment.analyst_skepticism)}
-          />
-        </div>
+      <div className="divide-y divide-border">
+        <ScoreBar
+          label="Tone"
+          description="avg of management confidence in presentation + Q&A"
+          value={toneAvg}
+          priorValue={tonePrior}
+          min={1}
+          max={10}
+          polarity="higher_is_better"
+          detail={
+            <>
+              Pres {sentiment.mgmt_confidence_presentation}/10 · Q&amp;A {sentiment.mgmt_confidence_qa}/10
+              {tonePrior != null && <span> · prior avg {tonePrior.toFixed(1)}</span>}
+            </>
+          }
+        />
+        <ScoreBar
+          label="Hedging"
+          description="frequency of qualifier words. lower is more direct"
+          value={sentiment.hedging_frequency}
+          min={1}
+          max={10}
+          polarity="higher_is_concerning"
+          detail={`Hedge score ${sentiment.hedging_frequency}/10`}
+        />
+        <ScoreBar
+          label="Evasion index"
+          description="Q&A answers with evasion score >= 3"
+          value={hotEvasion}
+          max={Math.max(1, totalEvasion)}
+          polarity="higher_is_concerning"
+          valueLabel={evasionLabel}
+          detail={
+            concerns.length > 0
+              ? `Top topic: ${concerns[0].topic}`
+              : totalEvasion === 0
+                ? 'No analyst questions parsed'
+                : 'No evasive answers flagged'
+          }
+        />
       </div>
 
       {concerns.length > 0 && (
@@ -218,7 +172,43 @@ export function SentimentPanel({ sentiment }: Props) {
         </div>
       )}
 
-      <EvasionGrid evasion={sentiment.evasion_scores} citations={qaEvidence} />
+      {visibleEvasive.length > 0 && (
+        <div className="mt-5 rounded-lg border border-bear-100 bg-bear-50/15 p-3">
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-bear-900">
+            Evasive Q&amp;A
+            <span className="ml-2 text-[10px] font-normal text-text-muted">
+              (top {visibleEvasive.length} of {totalEvasion})
+            </span>
+          </p>
+          <div className="space-y-2">
+            {visibleEvasive.map((e, i) => {
+              const cits = ensureEvasiveCitations(e, qaEvidence)
+              return (
+                <div key={i} className="rounded border border-bear-100 bg-bear-50/40 p-2 text-xs">
+                  <div className="mb-1 flex flex-wrap items-center gap-1.5">
+                    {e.topic && (
+                      <span className="rounded border border-accent-100 bg-accent-50 px-1.5 py-0.5 text-[10px] text-accent-700">
+                        {e.topic}
+                      </span>
+                    )}
+                    {e.analyst_name && <span className="text-[10px] text-text-muted">· {e.analyst_name}</span>}
+                  </div>
+                  <p className="line-clamp-2 font-medium text-text-primary">{e.analyst_question}</p>
+                  <p className="mt-0.5 text-text-muted">{e.reason}</p>
+                  {cits.length > 0 && (
+                    <div className="mt-2 space-y-1">
+                      <p className="text-[10px] font-semibold uppercase tracking-wide text-text-secondary">Quoted evidence</p>
+                      {cits.map((c, ci) => (
+                        <CitationButton key={ci} citation={c} label="Quoted evidence" />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
       {sentiment.analyst_topic_map && sentiment.analyst_topic_map.length > 0 && (
         <div className="mt-4 rounded border border-border bg-surface-card p-3">
@@ -228,54 +218,25 @@ export function SentimentPanel({ sentiment }: Props) {
               <div key={row.topic} className="rounded border border-border bg-surface-muted/60 p-2 text-xs">
                 <p className="font-medium capitalize text-text-primary">{row.topic}</p>
                 <p className="text-text-muted">
-                  {row.question_count} questions · skepticism {row.avg_skepticism.toFixed(1)} · evasion {row.avg_evasion.toFixed(1)}
+                  {row.question_count} question{row.question_count === 1 ? '' : 's'} · {row.answer_quality}
                 </p>
+                {(() => {
+                  const cits = topicCoverageCitations.get(normalizeTopic(row.topic)) ?? []
+                  if (cits.length === 0) return null
+                  return (
+                    <div className="mt-2 space-y-1">
+                      <p className="text-[10px] font-semibold uppercase tracking-wide text-text-secondary">Quoted evidence</p>
+                      {cits.map((c, i) => (
+                        <CitationButton key={i} citation={c} label="Quoted evidence" />
+                      ))}
+                    </div>
+                  )
+                })()}
               </div>
             ))}
           </div>
         </div>
       )}
-
-      {sentiment.speaker_tone && sentiment.speaker_tone.length > 0 && (
-        <div className="mt-4 rounded border border-border bg-surface-card p-3">
-          <h4 className="mb-2 text-sm font-medium text-text-secondary">Speaker tone</h4>
-          <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-            {sentiment.speaker_tone.map((s) => (
-              <div key={`${s.speaker_name}-${s.speaker_role}`} className="rounded border border-border bg-surface-muted/50 p-2 text-xs">
-                <p className="font-medium text-text-primary">{s.speaker_name} ({s.speaker_role})</p>
-                <p className="text-text-muted">Confidence {s.confidence} · Hedging {s.hedging} · {s.register}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <div className="mt-4 flex flex-wrap items-center gap-2 text-xs text-text-muted">
-        {shouldSurfaceConfidence(sentiment.confidence) && (
-          <ConfidenceBadge value={sentiment.confidence} prefix="Run confidence" />
-        )}
-        {sentiment.sentiment_stability && (
-          <span>
-            QA coverage {(sentiment.sentiment_stability.coverage_ratio * 100).toFixed(0)}% · agreement {(sentiment.sentiment_stability.model_agreement_ratio * 100).toFixed(0)}%
-          </span>
-        )}
-        <span>{sentiment.confidence_rationale}</span>
-        {sentiment.low_confidence_flag && (
-          <span className="font-medium text-warn-900">Low-confidence run</span>
-        )}
-        {sentiment.score_methodology.length > 0 && (
-          <MethodologyTip label="How computed" width="lg">
-            <ul className="space-y-1">
-              {sentiment.score_methodology.map((m) => (
-                <li key={m.metric}>
-                  <span className="font-semibold">{m.metric}:</span> {m.heuristic}
-                </li>
-              ))}
-            </ul>
-          </MethodologyTip>
-        )}
-      </div>
-
     </div>
   )
 }

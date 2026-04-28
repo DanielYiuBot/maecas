@@ -7,8 +7,13 @@ and upcoming catalysts from the transcript.
 import json
 import logging
 import time
+from typing import Any
 
 from backend.agents.base import BaseAgent
+from backend.agents._citation_sanitize import (
+    build_utterance_lookup,
+    sanitize_citation_list,
+)
 from backend.schemas.guidance import GuidanceCatalysts
 from backend.graph.state import GraphState
 
@@ -21,6 +26,47 @@ class GuidanceAgent(BaseAgent):
 
 
 _agent = GuidanceAgent()
+
+
+def _sanitize_guidance_payload(
+    data: dict[str, Any],
+    utterances: list[dict[str, Any]],
+) -> tuple[dict[str, Any], list[str]]:
+    """Walk implicit_signals[].evidence_citations and catalysts[].evidence_citations,
+    repair or drop malformed citation dicts, and surface a summary of any drops
+    as pipeline warnings."""
+    warnings: list[str] = []
+    lookup = build_utterance_lookup(utterances)
+
+    total_dropped = 0
+    for path, container in (
+        ("implicit_signals", data.get("implicit_signals")),
+        ("catalysts", data.get("catalysts")),
+    ):
+        if not isinstance(container, list):
+            continue
+        for i, entry in enumerate(container):
+            if not isinstance(entry, dict):
+                continue
+            cleaned, dropped = sanitize_citation_list(
+                entry.get("evidence_citations"),
+                lookup,
+                section_hint="QA" if path == "catalysts" else "Presentation",
+            )
+            entry["evidence_citations"] = cleaned
+            total_dropped += dropped
+            if dropped > 0:
+                warnings.append(
+                    f"Guidance: dropped {dropped} unrecoverable citation(s) from {path}[{i}] "
+                    "(missing both utterance_index and locatable quote)."
+                )
+
+    if total_dropped > 0:
+        logger.info(
+            "agent_05_guidance | sanitized citations | total_dropped=%d | rebuilt_indexes_via_match=%s",
+            total_dropped, "yes" if lookup else "no",
+        )
+    return data, warnings
 
 
 async def run(state: GraphState) -> dict:
@@ -57,6 +103,15 @@ async def run(state: GraphState) -> dict:
         )
 
         data = await _agent.call(system, user, provider, model)
+
+        # The Gemini guidance pass frequently drops `utterance_index` and `quote`
+        # from citation objects (it sometimes returns `{speaker, section, text}`
+        # or `{speaker, section}` only). Patch the payload before Pydantic
+        # validation so a single LLM compliance miss does not nuke the whole
+        # GuidanceCatalysts node and break the dashboard.
+        data, sanitize_warnings = _sanitize_guidance_payload(data, all_utterances)
+        new_warnings.extend(sanitize_warnings)
+
         guidance = await _agent.parse_output(data)
 
         if progress:
